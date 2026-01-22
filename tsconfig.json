@@ -1,5 +1,10 @@
 {
   "compilerOptions": {
+// added by usama saeed
+    "noUnusedLocals": false,
+     "noUnusedParameters": false,
+// added by usama saeed
+
     "target": "ES2020",
     "module": "commonjs",
     "lib": ["ES2020"],
