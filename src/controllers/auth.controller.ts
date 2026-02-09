@@ -114,13 +114,19 @@ export const getCurrentUser = async (
       return
     }
 
-    res.json({
+    const userResponse: any = {
       id: user._id.toString(),
       email: user.email,
       name: user.name,
       phone: user.phone,
       role: user.role,
-    })
+    }
+    
+    if (user.address) {
+      userResponse.address = user.address
+    }
+    
+    res.json(userResponse)
   } catch (error) {
     next(error)
   }

@@ -12,6 +12,10 @@ import {
   getAllDrivers,
   handleDispute,
   sendEmailReminder,
+  offerJobToDrivers,
+  addUserNote,
+  addBookingNote,
+  recordAdditionalWorkPayment,
 } from '../controllers/admin.controller'
 import { authenticate } from '../middlewares/auth.middleware'
 import { requireAdmin } from '../middlewares/admin.middleware'
@@ -40,6 +44,12 @@ router.put('/bookings/:id', updateBookingAdmin)
 router.post('/bookings/:id/assign-driver', assignDriver)
 router.post('/bookings/:id/handle-dispute', handleDispute)
 router.post('/bookings/:id/send-reminder', sendEmailReminder)
+router.post('/bookings/:id/offer-to-drivers', offerJobToDrivers)
+router.post('/bookings/:id/notes', addBookingNote)
+router.post('/bookings/:id/additional-work-payment', recordAdditionalWorkPayment)
+
+// User notes
+router.post('/users/:id/notes', addUserNote)
 
 export default router
 

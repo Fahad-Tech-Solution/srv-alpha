@@ -1,18 +1,70 @@
-import mongoose, { Document, Schema } from 'mongoose'
+import mongoose, { Document, Schema, SchemaTypes } from 'mongoose'
 import bcrypt from 'bcryptjs'
 
 export interface IUser extends Document {
   email: string
   password: string
   name: string
+  username?: string
   role: 'customer' | 'driver' | 'admin'
   phone?: string
+  address?: string
+  businessName?: string
   isActive: boolean
   // Driver-specific fields
   drivingLicence?: string
   goodsInTransitInsurance?: string
   publicLiability?: string
   proofOfAddress?: string
+  // Vehicle details
+  vehiclePhoto?: string
+  vehicleRegistration?: string
+  vehicleCategory?: 'small-van' | 'medium-van' | 'large-van' | 'truck'
+  vehicleMake?: string
+  vehicleModel?: string
+  vehicleSeats?: number
+  vehicleBaseLocation?: string
+  vehicleRegistrationDocumentType?: 'logbook' | 'mot' | 'v5'
+  vehicleRegistrationDocument?: string
+  vehicleType?: string
+  vehicleTotalPayload?: {
+    value?: number
+    unit?: 'kg' | 'tonnes'
+  }
+  vehicleLoadingCapacity?: {
+    value?: number
+    unit?: 'm³' | 'ft³'
+  }
+  vehicleMaxLength?: {
+    value?: number
+    unit?: 'm' | 'ft'
+  }
+  vehicleMotorbikeCapacity?: number
+  vehicleTailLift?: boolean
+  vehicleTrailer?: boolean
+  vehiclePayload?: {
+    value?: number
+    unit?: 'kg' | 'tonnes'
+  }
+  vehicleFuelType?: 'petrol' | 'diesel' | 'lpg' | 'hybrid' | 'electric' // in kg
+  // Bank details
+  bankDetails?: {
+    accountName?: string
+    accountNumber?: string
+    sortCode?: string
+    bankName?: string
+    bankStatement?: string // URL to uploaded document
+  }
+  // Pricing rules acceptance
+  pricingRulesAccepted?: boolean
+  pricingRulesAcceptedAt?: Date
+  // Notes/log section for admin
+  notes?: {
+    text: string
+    createdBy: mongoose.Types.ObjectId
+    createdAt: Date
+    type?: 'call' | 'issue' | 'general'
+  }[]
   createdAt: Date
   updatedAt: Date
   comparePassword(candidatePassword: string): Promise<boolean>
@@ -51,6 +103,20 @@ const userSchema = new Schema<IUser>(
       type: Boolean,
       default: true,
     },
+    username: {
+      type: String,
+      trim: true,
+      sparse: true,
+      unique: true,
+    },
+    address: {
+      type: String,
+      trim: true,
+    },
+    businessName: {
+      type: String,
+      trim: true,
+    },
     // Driver-specific fields
     drivingLicence: {
       type: String,
@@ -68,6 +134,112 @@ const userSchema = new Schema<IUser>(
       type: String,
       trim: true,
     },
+    // Vehicle details
+    vehiclePhoto: {
+      type: String,
+      trim: true,
+    },
+    vehicleRegistration: {
+      type: String,
+      trim: true,
+    },
+    vehicleCategory: {
+      type: String,
+      enum: ['small-van', 'medium-van', 'large-van', 'truck'],
+      trim: true,
+    },
+    vehicleMake: {
+      type: String,
+      trim: true,
+    },
+    vehicleModel: {
+      type: String,
+      trim: true,
+    },
+    vehicleSeats: {
+      type: Number,
+    },
+    vehicleBaseLocation: {
+      type: String,
+      trim: true,
+    },
+    vehicleRegistrationDocumentType: {
+      type: String,
+      enum: ['logbook', 'mot', 'v5'],
+      trim: true,
+    },
+    vehicleRegistrationDocument: {
+      type: String,
+      trim: true,
+    },
+    vehicleType: {
+      type: String,
+      trim: true,
+    },
+    vehicleTotalPayload: {
+      type: mongoose.Schema.Types.Mixed,
+    },
+    vehicleLoadingCapacity: {
+      type: mongoose.Schema.Types.Mixed,
+    },
+    vehicleMaxLength: {
+      type: mongoose.Schema.Types.Mixed,
+    },
+    vehicleMotorbikeCapacity: {
+      type: Number,
+      default: 0,
+    },
+    vehicleTailLift: {
+      type: Boolean,
+      default: false,
+    },
+    vehicleTrailer: {
+      type: Boolean,
+      default: false,
+    },
+    vehiclePayload: {
+      type: mongoose.Schema.Types.Mixed,
+    },
+    vehicleFuelType: {
+      type: String,
+      enum: ['petrol', 'diesel', 'lpg', 'hybrid', 'electric'],
+      trim: true,
+    },
+    // Bank details
+    bankDetails: {
+      accountName: String,
+      accountNumber: String,
+      sortCode: String,
+      bankName: String,
+      bankStatement: String, // URL to uploaded document
+    },
+    // Pricing rules acceptance
+    pricingRulesAccepted: {
+      type: Boolean,
+      default: false,
+    },
+    pricingRulesAcceptedAt: Date,
+    // Notes/log section
+    notes: [{
+      text: {
+        type: String,
+        required: true,
+      },
+      createdBy: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now,
+      },
+      type: {
+        type: String,
+        enum: ['call', 'issue', 'general'],
+        default: 'general',
+      },
+    }],
   },
   {
     timestamps: true,

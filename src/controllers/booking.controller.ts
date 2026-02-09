@@ -196,6 +196,19 @@ export const cancelBooking = async (
       return
     }
 
+    // Check 48-hour restriction
+    const pickupDate = new Date(booking.pickupDate)
+    const now = new Date()
+    const hoursUntilPickup = (pickupDate.getTime() - now.getTime()) / (1000 * 60 * 60)
+
+    if (hoursUntilPickup < 48) {
+      res.status(400).json({
+        message: 'Cannot cancel booking within 48 hours of the move date. Please contact support.',
+        hoursUntilPickup: Math.round(hoursUntilPickup * 10) / 10,
+      })
+      return
+    }
+
     booking.status = 'cancelled'
     await booking.save()
 

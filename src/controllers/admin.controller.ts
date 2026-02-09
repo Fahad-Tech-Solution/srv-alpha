@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import mongoose from 'mongoose'
 import { User } from '../models/User.model'
 import { Booking } from '../models/Booking.model'
 import { AuthRequest } from '../middlewares/auth.middleware'
@@ -161,7 +162,17 @@ export const updateUser = async (
 ): Promise<void> => {
   try {
     const { id } = req.params
-    const { name, email, phone, role, isActive } = req.body
+    const { 
+      name, 
+      email, 
+      phone, 
+      role, 
+      isActive, 
+      username, 
+      address, 
+      businessName,
+      bankDetails 
+    } = req.body
 
     const user = await User.findById(id)
     if (!user) {
@@ -175,6 +186,15 @@ export const updateUser = async (
     if (phone !== undefined) user.phone = phone
     if (role !== undefined) user.role = role
     if (isActive !== undefined) user.isActive = isActive
+    if (username !== undefined) user.username = username
+    if (address !== undefined) user.address = address
+    if (businessName !== undefined) user.businessName = businessName
+    if (bankDetails !== undefined) {
+      user.bankDetails = {
+        ...user.bankDetails,
+        ...bankDetails,
+      }
+    }
 
     await user.save()
 

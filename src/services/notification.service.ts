@@ -4,7 +4,9 @@
 export class NotificationService {
   async sendEmail(to: string, subject: string, body: string) {
     // TODO: Implement email sending
-    console.log(`Email would be sent to ${to}: ${subject}`)
+    console.log(`📧 Email would be sent to ${to}`)
+    console.log(`Subject: ${subject}`)
+    console.log(`Body:\n${body}`)
   }
 
   async sendSMS(to: string, message: string) {
@@ -17,4 +19,6 @@ export class NotificationService {
     console.log(`Push notification would be sent to ${userId}: ${title}`)
   }
 }
+
+export const notificationService = new NotificationService()
 

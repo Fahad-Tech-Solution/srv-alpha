@@ -45,6 +45,9 @@ export interface IBooking extends Document {
   helpersLabel?: string
   vanSize?: string
   manRequired?: string
+  hours?: number
+  men?: number
+  vans?: number
   
   // Additional info
   specialInstructions?: string
@@ -55,10 +58,33 @@ export interface IBooking extends Document {
   completionPictures?: string[]
   driverNotes?: string
   
+  // Additional work payment
+  additionalWorkPayment?: number
+  additionalWorkDescription?: string
+  
+  // Notes/log section for admin
+  notes?: {
+    text: string
+    createdBy: mongoose.Types.ObjectId
+    createdAt: Date
+    type?: 'call' | 'issue' | 'general'
+  }[]
+  
   // Dispute
   isDisputed?: boolean
   disputeReason?: string
   disputeResolved?: boolean
+  
+  // Job offers to drivers
+  offeredToDrivers?: mongoose.Types.ObjectId[]
+  driverOffers?: {
+    driver: mongoose.Types.ObjectId
+    offeredPrice: number
+    status: 'pending' | 'accepted' | 'rejected'
+    offeredAt: Date
+    respondedAt?: Date
+  }[]
+  offerExpiresAt?: Date
   
   // Timestamps
   createdAt: Date
@@ -172,6 +198,19 @@ const bookingSchema = new Schema<IBooking>(
     helpersLabel: String,
     vanSize: String,
     manRequired: String,
+    hours: {
+      type: Number,
+      min: 1,
+    },
+    men: {
+      type: Number,
+      min: 1,
+    },
+    vans: {
+      type: Number,
+      min: 1,
+      default: 1,
+    },
     specialInstructions: String,
     contactPhone: {
       type: String,
@@ -183,6 +222,31 @@ const bookingSchema = new Schema<IBooking>(
     },
     completionPictures: [String],
     driverNotes: String,
+    additionalWorkPayment: {
+      type: Number,
+      min: 0,
+    },
+    additionalWorkDescription: String,
+    notes: [{
+      text: {
+        type: String,
+        required: true,
+      },
+      createdBy: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now,
+      },
+      type: {
+        type: String,
+        enum: ['call', 'issue', 'general'],
+        default: 'general',
+      },
+    }],
     isDisputed: {
       type: Boolean,
       default: false,
@@ -192,6 +256,32 @@ const bookingSchema = new Schema<IBooking>(
       type: Boolean,
       default: false,
     },
+    offeredToDrivers: [{
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    }],
+    driverOffers: [{
+      driver: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+      },
+      offeredPrice: {
+        type: Number,
+        required: true,
+      },
+      status: {
+        type: String,
+        enum: ['pending', 'accepted', 'rejected'],
+        default: 'pending',
+      },
+      offeredAt: {
+        type: Date,
+        default: Date.now,
+      },
+      respondedAt: Date,
+    }],
+    offerExpiresAt: Date,
     completedAt: Date,
   },
   {
