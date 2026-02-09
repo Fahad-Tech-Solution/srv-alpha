@@ -44,12 +44,12 @@ router.put('/bookings/:id', updateBookingAdmin)
 router.post('/bookings/:id/assign-driver', assignDriver)
 router.post('/bookings/:id/handle-dispute', handleDispute)
 router.post('/bookings/:id/send-reminder', sendEmailReminder)
-router.post('/bookings/:id/offer-to-drivers', offerJobToDrivers)
-router.post('/bookings/:id/notes', addBookingNote)
-router.post('/bookings/:id/additional-work-payment', recordAdditionalWorkPayment)
+// router.post('/bookings/:id/offer-to-drivers', offerJobToDrivers)
+// router.post('/bookings/:id/notes', addBookingNote)
+// router.post('/bookings/:id/additional-work-payment', recordAdditionalWorkPayment)
 
 // User notes
-router.post('/users/:id/notes', addUserNote)
+// router.post('/users/:id/notes', addUserNote)
 
 export default router
 
