@@ -23,7 +23,8 @@ app.use(cors({
     'http://localhost:3000',
     'http://localhost:5173',
     'https://*.github.io', // GitHub Pages
-    'https://*.vercel.app', // Vercel deployments
+    // 'https://*.vercel.app', // Vercel deployments
+    'https://localv-fe.vercel.app', // Vercel deployments
   ],
   credentials: true,
 }))
