@@ -9,6 +9,7 @@ import bookingRoutes from './routes/booking.routes'
 import adminRoutes from './routes/admin.routes'
 import driverRoutes from './routes/driver.routes'
 import customerRoutes from './routes/customer.routes'
+import uploadRoutes from './routes/upload.routes'
 import { errorHandler } from './middlewares/errorHandler'
 
 dotenv.config()
@@ -25,6 +26,7 @@ app.use(cors({
     'https://*.github.io', // GitHub Pages
     // 'https://*.vercel.app', // Vercel deployments
     'https://localv-fe.vercel.app', // Vercel deployments
+
   ],
   credentials: true,
 }))
@@ -43,6 +45,7 @@ app.use('/api/bookings', bookingRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/driver', driverRoutes)
 app.use('/api/customer', customerRoutes)
+app.use('/api/upload', uploadRoutes)
 
 // Error handling middleware
 app.use(errorHandler)

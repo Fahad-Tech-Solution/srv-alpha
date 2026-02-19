@@ -5,7 +5,7 @@ import jwt, { SignOptions } from 'jsonwebtoken'
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production'
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d'
 
-// Ensure TypeScript knows secret is always a string   usama saeed
+// Ensure TypeScript knows secret is always a string   us
 const secret: string = JWT_SECRET
 
 export interface TokenPayload {
