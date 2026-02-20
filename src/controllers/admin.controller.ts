@@ -494,3 +494,216 @@ export const sendEmailReminder = async (
   }
 }
 
+// Offer job to drivers with percentage-based pricing
+export const offerJobToDrivers = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const { driverIds, percentage } = req.body // Array of driver IDs and percentage (e.g., 50 for 50%)
+
+    if (!driverIds || !Array.isArray(driverIds) || driverIds.length === 0) {
+      res.status(400).json({ message: 'Driver IDs are required' })
+      return
+    }
+
+    if (!percentage || percentage < 0 || percentage > 100) {
+      res.status(400).json({ message: 'Percentage must be between 0 and 100' })
+      return
+    }
+
+    const booking = await Booking.findById(id)
+    if (!booking) {
+      res.status(404).json({ message: 'Booking not found' })
+      return
+    }
+
+    const basePrice = booking.finalPrice || booking.estimatedPrice
+    const offeredPrice = (basePrice * percentage) / 100
+
+    // Initialize driverOffers if it doesn't exist
+    if (!booking.driverOffers) {
+      booking.driverOffers = []
+    }
+
+    // Add offers for each driver
+    const driverObjectIds = driverIds.map((driverId: string) => new mongoose.Types.ObjectId(driverId))
+    
+    for (const driverId of driverObjectIds) {
+      // Check if offer already exists
+      const existingOffer = booking.driverOffers.find(
+        (offer: any) => offer.driver.toString() === driverId.toString()
+      )
+
+      if (!existingOffer) {
+        booking.driverOffers.push({
+          driver: driverId,
+          offeredPrice,
+          status: 'pending',
+          offeredAt: new Date(),
+        })
+      } else {
+        // Update existing offer
+        existingOffer.offeredPrice = offeredPrice
+        existingOffer.status = 'pending'
+        existingOffer.offeredAt = new Date()
+      }
+    }
+
+    // Update offeredToDrivers array
+    booking.offeredToDrivers = [
+      ...new Set([
+        ...(booking.offeredToDrivers || []).map((id: any) => id.toString()),
+        ...driverIds,
+      ]),
+    ].map((id: string) => new mongoose.Types.ObjectId(id))
+
+    await booking.save()
+    await booking.populate('customer', 'name email phone')
+    await booking.populate('driver', 'name email phone')
+    await booking.populate('driverOffers.driver', 'name email phone')
+
+    res.json({
+      message: 'Job offers sent to drivers successfully',
+      booking,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+// Add note to user
+export const addUserNote = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const { text, type } = req.body
+
+    if (!text) {
+      res.status(400).json({ message: 'Note text is required' })
+      return
+    }
+
+    const user = await User.findById(id)
+    if (!user) {
+      res.status(404).json({ message: 'User not found' })
+      return
+    }
+
+    if (!user.notes) {
+      user.notes = []
+    }
+
+    user.notes.push({
+      text,
+      createdBy: new mongoose.Types.ObjectId(req.user!.userId),
+      createdAt: new Date(),
+      type: type || 'general',
+    })
+
+    await user.save()
+    await user.populate('notes.createdBy', 'name email')
+
+    res.json({
+      message: 'Note added successfully',
+      user,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+// Add note to booking
+export const addBookingNote = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const { text, type } = req.body
+
+    if (!text) {
+      res.status(400).json({ message: 'Note text is required' })
+      return
+    }
+
+    const booking = await Booking.findById(id)
+    if (!booking) {
+      res.status(404).json({ message: 'Booking not found' })
+      return
+    }
+
+    if (!booking.notes) {
+      booking.notes = []
+    }
+
+    booking.notes.push({
+      text,
+      createdBy: new mongoose.Types.ObjectId(req.user!.userId),
+      createdAt: new Date(),
+      type: type || 'general',
+    })
+
+    await booking.save()
+    await booking.populate('notes.createdBy', 'name email')
+    await booking.populate('customer', 'name email phone')
+    await booking.populate('driver', 'name email phone')
+
+    res.json({
+      message: 'Note added successfully',
+      booking,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+// Record additional work payment
+export const recordAdditionalWorkPayment = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const { amount, description } = req.body
+
+    if (!amount || amount < 0) {
+      res.status(400).json({ message: 'Valid payment amount is required' })
+      return
+    }
+
+    const booking = await Booking.findById(id)
+    if (!booking) {
+      res.status(404).json({ message: 'Booking not found' })
+      return
+    }
+
+    booking.additionalWorkPayment = amount
+    if (description) {
+      booking.additionalWorkDescription = description
+    }
+
+    // Update final price to include additional work
+    const basePrice = booking.finalPrice || booking.estimatedPrice
+    booking.finalPrice = basePrice + amount
+
+    await booking.save()
+    await booking.populate('customer', 'name email phone')
+    await booking.populate('driver', 'name email phone')
+
+    res.json({
+      message: 'Additional work payment recorded successfully',
+      booking,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+

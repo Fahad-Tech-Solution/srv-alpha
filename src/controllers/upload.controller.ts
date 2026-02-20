@@ -12,6 +12,13 @@ export const uploadImage = async (
   next: NextFunction
 ): Promise<void> => {
   try {
+    console.log('Upload request received:', {
+      hasFile: !!req.file,
+      fileSize: req.file?.size,
+      mimetype: req.file?.mimetype,
+      fileName: req.file?.originalname,
+    })
+
     if (!req.file) {
       res.status(400).json({ message: 'No file uploaded' })
       return
@@ -51,8 +58,11 @@ export const uploadImage = async (
     })
   } catch (error: any) {
     console.error('Upload error:', error)
+    console.error('Error stack:', error.stack)
+    const errorMessage = error.message || 'Failed to upload image'
     res.status(500).json({
-      message: error.message || 'Failed to upload image',
+      message: errorMessage,
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     })
   }
 }
