@@ -26,8 +26,7 @@ app.use(cors({
     'https://*.github.io', // GitHub Pages
     // 'https://*.vercel.app', // Vercel deployments
     'https://localv-fe.vercel.app', // Vercel deployments
-    'https://local-van.com/instant-quote-calc-2025-test/',
-    'https://local-van.com/instant-quote-calc-2025-test'
+    'https://local-van.com'
 
   ],
   credentials: true,
