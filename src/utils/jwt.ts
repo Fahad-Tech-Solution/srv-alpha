@@ -18,7 +18,7 @@ export const generateToken = (payload: TokenPayload): string => {
   // return jwt.sign(payload, JWT_SECRET, {
   //   expiresIn: JWT_EXPIRES_IN,
   // })
-const options: SignOptions = { expiresIn: JWT_EXPIRES_IN as SignOptions['expiresIn'] }
+  const options: SignOptions = { expiresIn: JWT_EXPIRES_IN as SignOptions['expiresIn'] }
 return jwt.sign(payload, secret, options)
 
 }
@@ -27,7 +27,6 @@ export const verifyToken = (token: string): TokenPayload => {
   try {
     // return jwt.verify(token, JWT_SECRET) as TokenPayload
     return jwt.verify(token, secret) as TokenPayload
-
   } catch (error) {
     throw new Error('Invalid or expired token')
   }

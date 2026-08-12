@@ -4,6 +4,13 @@ import { User } from '../models/User.model'
 import { Vehicle } from '../models/Vehicle.model'
 import { AuthRequest } from '../middlewares/auth.middleware'
 import mongoose from 'mongoose'
+import {
+  isOpenForDriverOffers,
+  syncBookingStatusAfterOfferChanges,
+  UNASSIGNED_OFFER_STATUSES,
+} from '../utils/bookingAssignment'
+import { AdminNotification } from '../models/AdminNotification.model'
+import { emitAdminNotification } from '../utils/realtime'
 
 // Get driver's jobs
 export const getDriverJobs = async (
@@ -59,11 +66,17 @@ export const getDriverStats = async (
       return
     }
 
+    const driverObjectId = new mongoose.Types.ObjectId(req.user.userId)
+    const now = new Date()
+
     const [
       totalJobs,
       activeJobs,
       completedJobs,
       pendingJobs,
+      offeredJobs,
+      earningsAgg,
+      recentEarnings,
     ] = await Promise.all([
       Booking.countDocuments({ driver: req.user.userId }),
       Booking.countDocuments({
@@ -78,13 +91,89 @@ export const getDriverStats = async (
         driver: req.user.userId,
         status: 'pending',
       }),
+      Booking.countDocuments({
+        status: { $in: ['pending', 'offered'] },
+        $or: [{ driver: { $exists: false } }, { driver: null }],
+        $and: [
+          {
+            $or: [
+              { offerExpiresAt: { $exists: false } },
+              { offerExpiresAt: null },
+              { offerExpiresAt: { $gt: now } },
+            ],
+          },
+          {
+            $or: [
+              {
+                driverOffers: {
+                  $elemMatch: {
+                    driver: driverObjectId,
+                    status: 'pending',
+                  },
+                },
+              },
+              {
+                offeredToDrivers: driverObjectId,
+                driverOffers: {
+                  $not: {
+                    $elemMatch: {
+                      driver: driverObjectId,
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      }),
+      Booking.aggregate([
+        {
+          $match: {
+            driver: driverObjectId,
+            status: 'completed',
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: {
+              $sum: {
+                $ifNull: ['$finalPrice', '$estimatedPrice'],
+              },
+            },
+          },
+        },
+      ]),
+      Booking.find({
+        driver: req.user.userId,
+        status: 'completed',
+      })
+        .sort({ completedAt: -1, updatedAt: -1 })
+        .limit(10)
+        .select(
+          'orderCode pickupCity deliveryCity finalPrice estimatedPrice completedAt paymentStatus'
+        )
+        .lean(),
     ])
+
+    const totalEarnings = earningsAgg[0]?.total || 0
 
     res.json({
       totalJobs,
       activeJobs,
       completedJobs,
       pendingJobs,
+      offeredJobs,
+      totalEarnings,
+      recentEarnings: recentEarnings.map((job: any) => ({
+        _id: job._id,
+        orderCode: job.orderCode,
+        pickupCity: job.pickupCity,
+        deliveryCity: job.deliveryCity,
+        amount: job.finalPrice ?? job.estimatedPrice ?? 0,
+        completedAt: job.completedAt,
+        paymentStatus: job.paymentStatus,
+      })),
     })
   } catch (error) {
     next(error)
@@ -104,11 +193,52 @@ export const getDriverJob = async (
     }
 
     const { id } = req.params
+    const driverObjectId = new mongoose.Types.ObjectId(req.user.userId)
+    const now = new Date()
 
     const booking = await Booking.findOne({
       _id: id,
-      driver: req.user.userId,
-    }).populate('customer', 'name email phone')
+      $or: [
+        { driver: req.user.userId },
+        {
+          status: { $in: UNASSIGNED_OFFER_STATUSES },
+          $or: [{ driver: { $exists: false } }, { driver: null }],
+          $and: [
+            {
+              $or: [
+                { offerExpiresAt: { $exists: false } },
+                { offerExpiresAt: null },
+                { offerExpiresAt: { $gt: now } },
+              ],
+            },
+            {
+              $or: [
+                {
+                  driverOffers: {
+                    $elemMatch: {
+                      driver: driverObjectId,
+                      status: 'pending',
+                    },
+                  },
+                },
+                {
+                  offeredToDrivers: driverObjectId,
+                  driverOffers: {
+                    $not: {
+                      $elemMatch: {
+                        driver: driverObjectId,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+      .populate('customer', 'name email phone')
+      .populate('driverOffers.driver', 'name email phone')
 
     if (!booking) {
       res.status(404).json({ message: 'Job not found' })
@@ -156,6 +286,14 @@ export const updateJobStatus = async (
     booking.status = status
     if (status === 'completed') {
       booking.completedAt = new Date()
+      // Completing a job recognizes the booked price as collected revenue
+      if (booking.paymentStatus !== 'refunded') {
+        booking.paymentStatus = 'paid'
+        if (booking.amountPaid == null) {
+          booking.amountPaid =
+            booking.finalPrice ?? booking.estimatedPrice ?? 0
+        }
+      }
     }
 
     await booking.save()
@@ -170,7 +308,7 @@ export const updateJobStatus = async (
   }
 }
 
-// Add completion pictures and notes
+// Add completion pictures and notes (also marks the job completed)
 export const addCompletionDetails = async (
   req: AuthRequest,
   res: Response,
@@ -195,6 +333,13 @@ export const addCompletionDetails = async (
       return
     }
 
+    if (!['confirmed', 'in-progress'].includes(booking.status)) {
+      res.status(400).json({
+        message: 'Only confirmed or in-progress jobs can be completed',
+      })
+      return
+    }
+
     if (pictures && Array.isArray(pictures)) {
       booking.completionPictures = pictures
     }
@@ -202,11 +347,20 @@ export const addCompletionDetails = async (
       booking.driverNotes = notes
     }
 
+    booking.status = 'completed'
+    booking.completedAt = new Date()
+    if (booking.paymentStatus !== 'refunded') {
+      booking.paymentStatus = 'paid'
+      if (booking.amountPaid == null) {
+        booking.amountPaid = booking.finalPrice ?? booking.estimatedPrice ?? 0
+      }
+    }
+
     await booking.save()
     await booking.populate('customer', 'name email phone')
 
     res.json({
-      message: 'Completion details added successfully',
+      message: 'Job completed successfully',
       booking,
     })
   } catch (error) {
@@ -511,9 +665,6 @@ export const updateDriverVehicle = async (
       return
     }
 
-    const userResponse = user.toObject()
-    delete userResponse.password
-
     res.json({
       message: 'Vehicle information updated successfully',
       vehicle: {
@@ -582,8 +733,7 @@ export const updateDriverProfile = async (
 
     await user.save()
 
-    const userResponse = user.toObject()
-    delete userResponse.password
+    const { password: _password, ...userResponse } = user.toObject()
 
     res.json({
       message: 'Profile updated successfully',
@@ -617,8 +767,7 @@ export const updateBankDetails = async (
     user.bankDetails = { ...user.bankDetails, ...bankDetails }
     await user.save()
 
-    const userResponse = user.toObject()
-    delete userResponse.password
+    const { password: _password, ...userResponse } = user.toObject()
 
     res.json({
       message: 'Bank details updated successfully',
@@ -724,15 +873,47 @@ export const getAvailableJobs = async (
       return
     }
 
+    const driverObjectId = new mongoose.Types.ObjectId(req.user.userId)
+    const now = new Date()
+
     const bookings = await Booking.find({
-      $or: [
-        { 'driverOffers.driver': req.user.userId, 'driverOffers.status': 'pending' },
-        { offeredToDrivers: req.user.userId, driver: { $exists: false } },
+      status: { $in: UNASSIGNED_OFFER_STATUSES },
+      $or: [{ driver: { $exists: false } }, { driver: null }],
+      $and: [
+        {
+          $or: [
+            { offerExpiresAt: { $exists: false } },
+            { offerExpiresAt: null },
+            { offerExpiresAt: { $gt: now } },
+          ],
+        },
+        {
+          $or: [
+            {
+              driverOffers: {
+                $elemMatch: {
+                  driver: driverObjectId,
+                  status: 'pending',
+                },
+              },
+            },
+            {
+              offeredToDrivers: driverObjectId,
+              driverOffers: {
+                $not: {
+                  $elemMatch: {
+                    driver: driverObjectId,
+                  },
+                },
+              },
+            },
+          ],
+        },
       ],
-      status: 'pending',
     })
       .populate('customer', 'name email phone')
-      .sort({ createdAt: -1 })
+      .populate('driverOffers.driver', 'name email phone')
+      .sort({ pickupDate: 1, createdAt: -1 })
 
     res.json({ bookings })
   } catch (error) {
@@ -753,6 +934,8 @@ export const acceptJobOffer = async (
     }
 
     const { id } = req.params
+    const now = new Date()
+    const driverObjectId = new mongoose.Types.ObjectId(req.user.userId)
 
     const booking = await Booking.findById(id)
     if (!booking) {
@@ -760,42 +943,167 @@ export const acceptJobOffer = async (
       return
     }
 
-    // Find driver's offer
-    const driverOffer = booking.driverOffers?.find(
-      (offer) => offer.driver.toString() === req.user.userId && offer.status === 'pending'
-    )
+    if (!isOpenForDriverOffers(booking)) {
+      if (booking.driver?.toString() === req.user.userId) {
+        await booking.populate('customer', 'name email phone')
+        await booking.populate('driver', 'name email phone')
+        res.json({
+          message: 'Job already accepted by this driver',
+          booking,
+        })
+        return
+      }
 
-    if (!driverOffer) {
-      res.status(400).json({ message: 'No pending offer found for this driver' })
+      res.status(409).json({ message: 'This job is no longer available to accept' })
       return
     }
 
-    // Update offer status
-    driverOffer.status = 'accepted'
-    driverOffer.respondedAt = new Date()
-
-    // Assign driver to booking
-    booking.driver = new mongoose.Types.ObjectId(req.user.userId)
-    booking.status = 'confirmed'
-    booking.finalPrice = driverOffer.offeredPrice
-
-    // Reject other pending offers
-    if (booking.driverOffers) {
-      booking.driverOffers.forEach((offer) => {
-        if (offer.status === 'pending' && offer.driver.toString() !== req.user.userId) {
-          offer.status = 'rejected'
-          offer.respondedAt = new Date()
-        }
-      })
+    if (booking.offerExpiresAt && booking.offerExpiresAt <= now) {
+      res.status(400).json({ message: 'This job offer has expired' })
+      return
     }
 
-    await booking.save()
-    await booking.populate('customer', 'name email phone')
-    await booking.populate('driver', 'name email phone')
+    const isInOfferedList =
+      booking.offeredToDrivers?.some((driverId) => driverId.toString() === req.user!.userId) ||
+      false
+
+    let driverOffer = booking.driverOffers?.find(
+      (offer) => offer.driver.toString() === req.user!.userId && offer.status === 'pending'
+    )
+
+    if (!driverOffer && isInOfferedList) {
+      if (!booking.driverOffers) {
+        booking.driverOffers = []
+      }
+      const basePrice = booking.finalPrice || booking.estimatedPrice
+      booking.driverOffers.push({
+        driver: driverObjectId,
+        offeredPrice: basePrice,
+        status: 'pending',
+        offeredAt: now,
+      } as any)
+      driverOffer = booking.driverOffers[booking.driverOffers.length - 1] as any
+    }
+
+    if (!driverOffer) {
+      res.status(400).json({ message: 'No active offer found for this driver' })
+      return
+    }
+
+    const claimedBooking = await Booking.findOneAndUpdate(
+      {
+        _id: id,
+        status: { $in: UNASSIGNED_OFFER_STATUSES },
+        $or: [{ driver: { $exists: false } }, { driver: null }],
+        $and: [
+          {
+            $or: [
+              { offerExpiresAt: { $exists: false } },
+              { offerExpiresAt: null },
+              { offerExpiresAt: { $gt: now } },
+            ],
+          },
+          {
+            $or: [
+              {
+                driverOffers: {
+                  $elemMatch: {
+                    driver: driverObjectId,
+                    status: 'pending',
+                  },
+                },
+              },
+              {
+                offeredToDrivers: driverObjectId,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        $set: {
+          driver: driverObjectId,
+          status: 'confirmed',
+          finalPrice: driverOffer.offeredPrice,
+          assignedAt: now,
+        },
+      },
+      { new: true }
+    )
+
+    if (!claimedBooking) {
+      res.status(409).json({ message: 'This job was already accepted by another driver' })
+      return
+    }
+
+    if (!claimedBooking.driverOffers) {
+      claimedBooking.driverOffers = []
+    }
+    const pendingOffer = claimedBooking.driverOffers.find(
+      (offer) => offer.driver.toString() === req.user!.userId && offer.status === 'pending'
+    )
+
+    if (pendingOffer) {
+      pendingOffer.status = 'accepted'
+      pendingOffer.respondedAt = now
+    } else {
+      claimedBooking.driverOffers.push({
+        driver: driverObjectId,
+        offeredPrice: driverOffer.offeredPrice,
+        status: 'accepted',
+        offeredAt: now,
+        respondedAt: now,
+      } as any)
+    }
+
+    claimedBooking.driverOffers.forEach((offer) => {
+      if (offer.status === 'pending' && offer.driver.toString() !== req.user!.userId) {
+        offer.status = 'rejected'
+        offer.respondedAt = now
+      }
+    })
+
+    claimedBooking.offeredToDrivers = []
+    await claimedBooking.save()
+    await claimedBooking.populate('customer', 'name email phone')
+    await claimedBooking.populate('driver', 'name email phone')
+
+    const driverDoc = claimedBooking.driver as any
+    const driverName =
+      typeof driverDoc === 'object' && driverDoc?.name
+        ? driverDoc.name
+        : 'A driver'
+    const jobName = `${claimedBooking.pickupCity} → ${claimedBooking.deliveryCity}`
+    const jobLabel = claimedBooking.orderCode || jobName
+    const offeredAmount =
+      claimedBooking.finalPrice ?? driverOffer.offeredPrice ?? claimedBooking.estimatedPrice
+
+    const notification = await AdminNotification.create({
+      type: 'offer_accepted',
+      title: 'Driver accepted a job offer',
+      message: `${driverName} accepted offer for ${jobName} (${jobLabel}) at £${Number(offeredAmount).toFixed(2)}.`,
+      booking: claimedBooking._id,
+      driver: driverObjectId,
+      driverName,
+      jobId: claimedBooking._id.toString(),
+      jobName,
+      orderCode: claimedBooking.orderCode,
+      offeredPrice: offeredAmount,
+      isRead: false,
+    })
+
+    const populatedNotification = await AdminNotification.findById(notification._id)
+      .populate('driver', 'name email')
+      .populate('booking', 'orderCode status pickupCity deliveryCity')
+      .lean()
+
+    if (populatedNotification) {
+      emitAdminNotification(populatedNotification as Record<string, unknown>)
+    }
 
     res.json({
       message: 'Job offer accepted successfully',
-      booking,
+      booking: claimedBooking,
     })
   } catch (error) {
     next(error)
@@ -815,6 +1123,8 @@ export const rejectJobOffer = async (
     }
 
     const { id } = req.params
+    const now = new Date()
+    const driverObjectId = new mongoose.Types.ObjectId(req.user.userId)
 
     const booking = await Booking.findById(id)
     if (!booking) {
@@ -822,19 +1132,53 @@ export const rejectJobOffer = async (
       return
     }
 
-    // Find driver's offer
-    const driverOffer = booking.driverOffers?.find(
-      (offer) => offer.driver.toString() === req.user.userId && offer.status === 'pending'
-    )
-
-    if (!driverOffer) {
-      res.status(400).json({ message: 'No pending offer found for this driver' })
+    if (!isOpenForDriverOffers(booking)) {
+      res.status(409).json({ message: 'This job is no longer available to reject' })
       return
     }
 
-    // Update offer status
+    if (booking.offerExpiresAt && booking.offerExpiresAt <= now) {
+      res.status(400).json({ message: 'This job offer has expired' })
+      return
+    }
+
+    const isInOfferedList =
+      booking.offeredToDrivers?.some((driverId) => driverId.toString() === req.user!.userId) ||
+      false
+
+    let driverOffer = booking.driverOffers?.find(
+      (offer) => offer.driver.toString() === req.user!.userId && offer.status === 'pending'
+    )
+
+    if (!driverOffer && isInOfferedList) {
+      if (!booking.driverOffers) {
+        booking.driverOffers = []
+      }
+      const basePrice = booking.finalPrice || booking.estimatedPrice
+      booking.driverOffers.push({
+        driver: driverObjectId,
+        offeredPrice: basePrice,
+        status: 'pending',
+        offeredAt: now,
+      } as any)
+      driverOffer = booking.driverOffers[booking.driverOffers.length - 1] as any
+    }
+
+    if (!driverOffer) {
+      res.status(400).json({ message: 'No active offer found for this driver' })
+      return
+    }
+
     driverOffer.status = 'rejected'
-    driverOffer.respondedAt = new Date()
+    driverOffer.respondedAt = now
+
+    if (booking.offeredToDrivers?.length) {
+      booking.offeredToDrivers = booking.offeredToDrivers.filter(
+        (driverId) => driverId.toString() !== req.user!.userId
+      ) as any
+    }
+
+    syncBookingStatusAfterOfferChanges(booking)
 
     await booking.save()
 

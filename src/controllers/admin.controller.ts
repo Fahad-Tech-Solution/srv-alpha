@@ -3,6 +3,15 @@ import mongoose from 'mongoose'
 import { User } from '../models/User.model'
 import { Booking } from '../models/Booking.model'
 import { AuthRequest } from '../middlewares/auth.middleware'
+import {
+  applyStatusSideEffects,
+  BookingStatus,
+  canDirectAssign,
+  hasAssignedDriver,
+  isOfferable,
+  supersedePendingOffers,
+} from '../utils/bookingAssignment'
+import { AdminNotification } from '../models/AdminNotification.model'
 
 // Get dashboard statistics
 export const getAdminStats = async (
@@ -13,44 +22,70 @@ export const getAdminStats = async (
   try {
     const [
       totalUsers,
+      totalAdmins,
       totalDrivers,
       totalCustomers,
       totalBookings,
       pendingBookings,
+      offeredBookings,
       confirmedBookings,
       inProgressBookings,
       completedBookings,
       disputedBookings,
+      cancelledBookings,
       totalRevenue,
       totalSpent,
+      pipelineValue,
     ] = await Promise.all([
       User.countDocuments({ isActive: true }),
+      User.countDocuments({ role: 'admin', isActive: true }),
       User.countDocuments({ role: 'driver', isActive: true }),
       User.countDocuments({ role: 'customer', isActive: true }),
       Booking.countDocuments(),
       Booking.countDocuments({ status: 'pending' }),
+      Booking.countDocuments({ status: 'offered' }),
       Booking.countDocuments({ status: 'confirmed' }),
       Booking.countDocuments({ status: 'in-progress' }),
       Booking.countDocuments({ status: 'completed' }),
       Booking.countDocuments({ status: 'disputed' }),
+      Booking.countDocuments({ status: 'cancelled' }),
+      // Recognized revenue = completed jobs (price booked/final)
       Booking.aggregate([
         {
           $match: {
             status: 'completed',
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: { $ifNull: ['$finalPrice', '$estimatedPrice'] } },
+          },
+        },
+      ]),
+      // Money marked as paid (any status)
+      Booking.aggregate([
+        {
+          $match: {
             paymentStatus: 'paid',
           },
         },
         {
           $group: {
             _id: null,
-            total: { $sum: '$finalPrice' },
+            total: {
+              $sum: {
+                $ifNull: ['$amountPaid', { $ifNull: ['$finalPrice', '$estimatedPrice'] }],
+              },
+            },
           },
         },
       ]),
+      // Open pipeline = confirmed + in-progress job value
       Booking.aggregate([
         {
           $match: {
-            paymentStatus: 'paid',
+            status: { $in: ['confirmed', 'in-progress'] },
           },
         },
         {
@@ -64,25 +99,32 @@ export const getAdminStats = async (
 
     const revenue = totalRevenue[0]?.total || 0
     const spent = totalSpent[0]?.total || 0
+    const pipeline = pipelineValue[0]?.total || 0
 
     res.json({
       users: {
         total: totalUsers,
+        admins: totalAdmins,
         drivers: totalDrivers,
         customers: totalCustomers,
       },
       bookings: {
         total: totalBookings,
         pending: pendingBookings,
+        offered: offeredBookings,
         confirmed: confirmedBookings,
         inProgress: inProgressBookings,
         completed: completedBookings,
         disputed: disputedBookings,
-        new: pendingBookings, // New bookings are pending ones
+        cancelled: cancelledBookings,
+        new: pendingBookings,
+        // Active assigned work often appears as "confirmed" before "in-progress"
+        activeAssigned: confirmedBookings + inProgressBookings,
       },
       revenue: {
         total: revenue,
         totalSpent: spent,
+        pipeline,
       },
     })
   } catch (error) {
@@ -198,8 +240,7 @@ export const updateUser = async (
 
     await user.save()
 
-    const userResponse = user.toObject()
-    delete userResponse.password
+    const { password: _password, ...userResponse } = user.toObject()
 
     res.json({
       message: 'User updated successfully',
@@ -298,8 +339,24 @@ export const updateBookingAdmin = async (
       return
     }
 
-    // Update all fields
-    Object.assign(booking, updateData)
+    const { status, driver, driverOffers, offeredToDrivers, assignedAt, assignedBy, ...safeUpdates } =
+      updateData
+
+    Object.assign(booking, safeUpdates)
+
+    if (status !== undefined && status !== booking.status) {
+      const sideEffectResult = applyStatusSideEffects(
+        booking,
+        status as BookingStatus,
+        booking.status as BookingStatus
+      )
+      if (sideEffectResult.error) {
+        res.status(400).json({ message: sideEffectResult.error })
+        return
+      }
+      booking.status = status
+    }
+
     await booking.save()
 
     await booking.populate('customer', 'name email phone')
@@ -322,7 +379,7 @@ export const assignDriver = async (
 ): Promise<void> => {
   try {
     const { id } = req.params
-    const { driverId } = req.body
+    const { driverId, finalPrice } = req.body
 
     if (!driverId) {
       res.status(400).json({ message: 'Driver ID is required' })
@@ -342,10 +399,43 @@ export const assignDriver = async (
       return
     }
 
-    booking.driver = driver._id
-    if (booking.status === 'pending') {
+    if (!canDirectAssign(booking)) {
+      res.status(400).json({ message: 'Cannot assign a driver to a completed or cancelled booking' })
+      return
+    }
+
+    const isReassignment = hasAssignedDriver(booking)
+    if (!isReassignment && !isOfferable(booking) && booking.status !== 'confirmed') {
+      res.status(400).json({
+        message: 'Booking must be pending or offered before assigning a driver directly',
+      })
+      return
+    }
+
+    const now = new Date()
+    const driverObjectId = new mongoose.Types.ObjectId(driverId)
+
+    booking.driver = driverObjectId
+    booking.assignedAt = now
+    booking.assignedBy = new mongoose.Types.ObjectId(req.user!.userId)
+
+    if (finalPrice !== undefined && finalPrice !== null && finalPrice !== '') {
+      booking.finalPrice = Number(finalPrice)
+    } else if (!booking.finalPrice) {
+      const driverOffer = booking.driverOffers?.find(
+        (offer) => offer.driver.toString() === driverId && offer.status === 'pending'
+      )
+      booking.finalPrice = driverOffer?.offeredPrice ?? booking.estimatedPrice
+    }
+
+    supersedePendingOffers(booking, { acceptedDriverId: driverId, now })
+    booking.offeredToDrivers = []
+    booking.offerExpiresAt = undefined
+
+    if (['pending', 'offered'].includes(booking.status)) {
       booking.status = 'confirmed'
     }
+
     await booking.save()
 
     await booking.populate('customer', 'name email phone')
@@ -520,6 +610,15 @@ export const offerJobToDrivers = async (
       return
     }
 
+    if (!isOfferable(booking)) {
+      res.status(400).json({
+        message: hasAssignedDriver(booking)
+          ? 'This booking already has an assigned driver'
+          : 'Only pending or unassigned offered bookings can receive new job offers',
+      })
+      return
+    }
+
     const basePrice = booking.finalPrice || booking.estimatedPrice
     const offeredPrice = (basePrice * percentage) / 100
 
@@ -559,6 +658,10 @@ export const offerJobToDrivers = async (
         ...driverIds,
       ]),
     ].map((id: string) => new mongoose.Types.ObjectId(id))
+
+    const offerExpiryHours = 48
+    booking.offerExpiresAt = new Date(Date.now() + offerExpiryHours * 60 * 60 * 1000)
+    booking.status = 'offered'
 
     await booking.save()
     await booking.populate('customer', 'name email phone')
@@ -702,6 +805,87 @@ export const recordAdditionalWorkPayment = async (
       message: 'Additional work payment recorded successfully',
       booking,
     })
+  } catch (error) {
+    next(error)
+  }
+}
+
+// Admin in-app notifications (e.g. driver accepted offer)
+export const getAdminNotifications = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { page = 1, limit = 20, unreadOnly } = req.query
+    const pageNum = Math.max(1, Number(page))
+    const limitNum = Math.min(50, Math.max(1, Number(limit)))
+    const skip = (pageNum - 1) * limitNum
+
+    const query: Record<string, unknown> = {}
+    if (unreadOnly === 'true') {
+      query.isRead = false
+    }
+
+    const [notifications, total, unreadCount] = await Promise.all([
+      AdminNotification.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate('driver', 'name email')
+        .populate('booking', 'orderCode status pickupCity deliveryCity')
+        .lean(),
+      AdminNotification.countDocuments(query),
+      AdminNotification.countDocuments({ isRead: false }),
+    ])
+
+    res.json({
+      notifications,
+      unreadCount,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum) || 1,
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const markAdminNotificationRead = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const notification = await AdminNotification.findByIdAndUpdate(
+      id,
+      { isRead: true },
+      { new: true }
+    )
+
+    if (!notification) {
+      res.status(404).json({ message: 'Notification not found' })
+      return
+    }
+
+    res.json({ message: 'Notification marked as read', notification })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const markAllAdminNotificationsRead = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    await AdminNotification.updateMany({ isRead: false }, { isRead: true })
+    res.json({ message: 'All notifications marked as read' })
   } catch (error) {
     next(error)
   }

@@ -16,6 +16,9 @@ import {
   addUserNote,
   addBookingNote,
   recordAdditionalWorkPayment,
+  getAdminNotifications,
+  markAdminNotificationRead,
+  markAllAdminNotificationsRead,
 } from '../controllers/admin.controller'
 import { authenticate } from '../middlewares/auth.middleware'
 import { requireAdmin } from '../middlewares/admin.middleware'
@@ -28,6 +31,11 @@ router.use(requireAdmin)
 
 // Dashboard stats
 router.get('/stats', getAdminStats)
+
+// Notifications
+router.get('/notifications', getAdminNotifications)
+router.post('/notifications/read-all', markAllAdminNotificationsRead)
+router.post('/notifications/:id/read', markAdminNotificationRead)
 
 // User management
 router.get('/users', getAllUsers)

@@ -1,9 +1,11 @@
+import http from 'http'
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
 import dotenv from 'dotenv'
 import { connectDB } from './utils/database'
+import { initRealtime } from './utils/realtime'
 import authRoutes from './routes/auth.routes'
 import bookingRoutes from './routes/booking.routes'
 import adminRoutes from './routes/admin.routes'
@@ -15,7 +17,10 @@ import { errorHandler } from './middlewares/errorHandler'
 dotenv.config()
 
 const app = express()
+const server = http.createServer(app)
 const PORT = process.env.PORT || 5000
+
+initRealtime(server)
 
 // Middleware
 app.use(helmet())
@@ -24,10 +29,8 @@ app.use(cors({
     'http://localhost:3000',
     'http://localhost:5173',
     'https://*.github.io', // GitHub Pages
-    // 'https://*.vercel.app', // Vercel deployments
-    'https://localv-fe.vercel.app', // Vercel deployments
-    'https://local-van.com'
-
+    'https://* .vercel.app', // Vercel deployments
+    'https://fahad-tech-solution.github.io/Local-Van'
   ],
   credentials: true,
 }))
@@ -54,7 +57,7 @@ app.use(errorHandler)
 // Connect to database and start server
 connectDB()
   .then(() => {
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`)
     })
   })
@@ -64,4 +67,3 @@ connectDB()
   })
 
 export default app
-

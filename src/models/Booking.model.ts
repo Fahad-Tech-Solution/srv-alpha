@@ -3,7 +3,7 @@ import mongoose, { Document, Schema } from 'mongoose'
 export interface IBooking extends Document {
   customer: mongoose.Types.ObjectId
   driver?: mongoose.Types.ObjectId
-  status: 'pending' | 'confirmed' | 'in-progress' | 'completed' | 'cancelled' | 'disputed'
+  status: 'pending' | 'offered' | 'confirmed' | 'in-progress' | 'completed' | 'cancelled' | 'disputed'
   
   // Pickup details
   pickupAddress: string
@@ -80,11 +80,14 @@ export interface IBooking extends Document {
   driverOffers?: {
     driver: mongoose.Types.ObjectId
     offeredPrice: number
-    status: 'pending' | 'accepted' | 'rejected'
+    status: 'pending' | 'accepted' | 'rejected' | 'superseded' | 'expired'
     offeredAt: Date
     respondedAt?: Date
   }[]
   offerExpiresAt?: Date
+
+  assignedAt?: Date
+  assignedBy?: mongoose.Types.ObjectId
   
   // Timestamps
   createdAt: Date
@@ -105,7 +108,7 @@ const bookingSchema = new Schema<IBooking>(
     },
     status: {
       type: String,
-      enum: ['pending', 'confirmed', 'in-progress', 'completed', 'cancelled', 'disputed'],
+      enum: ['pending', 'offered', 'confirmed', 'in-progress', 'completed', 'cancelled', 'disputed'],
       default: 'pending',
     },
     pickupAddress: {
@@ -272,7 +275,7 @@ const bookingSchema = new Schema<IBooking>(
       },
       status: {
         type: String,
-        enum: ['pending', 'accepted', 'rejected'],
+        enum: ['pending', 'accepted', 'rejected', 'superseded', 'expired'],
         default: 'pending',
       },
       offeredAt: {
@@ -282,6 +285,11 @@ const bookingSchema = new Schema<IBooking>(
       respondedAt: Date,
     }],
     offerExpiresAt: Date,
+    assignedAt: Date,
+    assignedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
     completedAt: Date,
   },
   {
