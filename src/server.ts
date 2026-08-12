@@ -24,16 +24,42 @@ initRealtime(server)
 
 // Middleware
 app.use(helmet())
-app.use(cors({
-  origin: process.env.CORS_ORIGIN?.split(',') || [
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'https://*.github.io', // GitHub Pages
-    'https://* .vercel.app', // Vercel deployments
-    'https://fahad-tech-solution.github.io/Local-Van'
-  ],
-  credentials: true,
-}))
+
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://fahad-tech-solution.github.io', // NO trailing path '/Local-Van'
+  ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : []),
+];
+
+// Regex patterns to support wildcard subdomains like *.vercel.app or *.github.io
+const allowedPatterns = [
+  /\.github\.io$/,
+  /\.vercel\.app$/,
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like Server-to-Server, mobile apps, or Postman)
+      if (!origin) return callback(null, true);
+
+      // 1. Check exact match
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // 2. Check regex wildcard patterns
+      const isPatternAllowed = allowedPatterns.some((pattern) => pattern.test(origin));
+      if (isPatternAllowed) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`CORS policy blocked access for origin: ${origin}`));
+    },
+    credentials: true,
+  })
+);
 app.use(morgan('dev'))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
