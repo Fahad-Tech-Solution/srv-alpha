@@ -228,6 +228,13 @@ export const createPublicBooking = async (
   next: NextFunction
 ): Promise<void> => {
   try {
+    if (process.env.BOOKING_PUBLIC_ENABLED !== 'true') {
+      res.status(410).json({
+        message: 'Public booking ingestion is disabled. Use the private integration endpoint.',
+      })
+      return
+    }
+
     const { email, name, phone, ...bookingData } = req.body
 
     // Validate email is provided

@@ -1,5 +1,6 @@
 import http from 'http'
 import express from 'express'
+import type { Request } from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
@@ -12,6 +13,7 @@ import adminRoutes from './routes/admin.routes'
 import driverRoutes from './routes/driver.routes'
 import customerRoutes from './routes/customer.routes'
 import uploadRoutes from './routes/upload.routes'
+import internalIntegrationRoutes from './routes/internalIntegration.routes'
 import { errorHandler } from './middlewares/errorHandler'
 
 dotenv.config()
@@ -61,7 +63,13 @@ app.use(
   })
 );
 app.use(morgan('dev'))
-app.use(express.json())
+app.use(
+  express.json({
+    verify: (req, _res, buffer) => {
+      ;(req as Request & { rawBody?: string }).rawBody = buffer.toString('utf8')
+    },
+  })
+)
 app.use(express.urlencoded({ extended: true }))
 
 // Health check
@@ -76,6 +84,7 @@ app.use('/api/admin', adminRoutes)
 app.use('/api/driver', driverRoutes)
 app.use('/api/customer', customerRoutes)
 app.use('/api/upload', uploadRoutes)
+app.use('/internal/integrations', internalIntegrationRoutes)
 
 // Error handling middleware
 app.use(errorHandler)

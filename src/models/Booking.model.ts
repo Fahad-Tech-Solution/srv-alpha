@@ -33,8 +33,12 @@ export interface IBooking extends Document {
   finalPrice?: number
   paymentStatus: 'pending' | 'paid' | 'refunded'
   paymentMethod?: string
+  paymentReference?: string
   amountPaid?: number
   paymentDate?: Date
+  idempotencyKey?: string
+  sourceSystem?: string
+  eventVersion?: string
   
   // Order details
   orderCode?: string
@@ -188,11 +192,15 @@ const bookingSchema = new Schema<IBooking>(
       default: 'pending',
     },
     paymentMethod: String,
+    paymentReference: String,
     amountPaid: {
       type: Number,
       min: 0,
     },
     paymentDate: Date,
+    idempotencyKey: String,
+    sourceSystem: String,
+    eventVersion: String,
     orderCode: String,
     miles: Number,
     durationRequired: String,
@@ -302,6 +310,8 @@ bookingSchema.index({ customer: 1, createdAt: -1 })
 bookingSchema.index({ driver: 1, status: 1 })
 bookingSchema.index({ status: 1 })
 bookingSchema.index({ orderCode: 1 }, { sparse: true, unique: true })
+bookingSchema.index({ paymentReference: 1 }, { sparse: true, unique: true })
+bookingSchema.index({ idempotencyKey: 1 }, { sparse: true, unique: true })
 
 export const Booking = mongoose.model<IBooking>('Booking', bookingSchema)
 
