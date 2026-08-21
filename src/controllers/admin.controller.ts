@@ -12,6 +12,7 @@ import {
   supersedePendingOffers,
 } from '../utils/bookingAssignment'
 import { AdminNotification } from '../models/AdminNotification.model'
+import { resendOnboardingInviteByEmail } from '../services/paidBookingIntegration.service'
 
 // Get dashboard statistics
 export const getAdminStats = async (
@@ -580,6 +581,36 @@ export const sendEmailReminder = async (
       booking,
     })
   } catch (error) {
+    next(error)
+  }
+}
+
+export const resendCustomerInvite = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const user = await User.findById(id)
+    if (!user) {
+      res.status(404).json({ message: 'User not found' })
+      return
+    }
+
+    const result = await resendOnboardingInviteByEmail(user.email)
+    res.json({
+      message:
+        result.inviteStatus === 'sent'
+          ? 'Onboarding invite resent'
+          : 'Invite email failed to send',
+      ...result,
+    })
+  } catch (error: any) {
+    if (error?.statusCode === 404 || error?.statusCode === 400) {
+      res.status(error.statusCode).json({ message: error.message })
+      return
+    }
     next(error)
   }
 }

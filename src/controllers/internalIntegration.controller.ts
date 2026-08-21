@@ -1,6 +1,9 @@
 import { NextFunction, Request, Response } from 'express'
 import { validationResult } from 'express-validator'
-import { upsertPaidBooking } from '../services/paidBookingIntegration.service'
+import {
+  resendOnboardingInviteByEmail,
+  upsertPaidBooking,
+} from '../services/paidBookingIntegration.service'
 import { Booking } from '../models/Booking.model'
 
 export async function upsertPaidBookingController(
@@ -46,6 +49,41 @@ export async function upsertPaidBookingController(
       }
     }
 
+    next(error)
+  }
+}
+
+export async function resendInviteController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const errors = validationResult(req)
+    if (!errors.isEmpty()) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_PAYLOAD',
+          message: errors.array()[0]?.msg || 'Payload validation failed',
+        },
+      })
+      return
+    }
+
+    const result = await resendOnboardingInviteByEmail(req.body.email)
+    res.status(200).json({
+      success: true,
+      ...result,
+    })
+  } catch (error: any) {
+    if (error?.statusCode === 404 || error?.statusCode === 400) {
+      res.status(error.statusCode).json({
+        success: false,
+        error: { code: 'INVITE_RESEND_FAILED', message: error.message },
+      })
+      return
+    }
     next(error)
   }
 }

@@ -4,7 +4,7 @@ import {
   authenticateIntegrationRequest,
   integrationRateLimiter,
 } from '../middlewares/integrationAuth.middleware'
-import { upsertPaidBookingController } from '../controllers/internalIntegration.controller'
+import { upsertPaidBookingController, resendInviteController } from '../controllers/internalIntegration.controller'
 
 const router = Router()
 
@@ -35,12 +35,22 @@ const upsertPaidValidation = [
   body('booking.items').optional().isArray(),
 ]
 
+const resendInviteValidation = [body('email').isEmail().normalizeEmail()]
+
 router.post(
   '/bookings/upsert-paid',
   integrationRateLimiter,
   authenticateIntegrationRequest,
   upsertPaidValidation,
   upsertPaidBookingController
+)
+
+router.post(
+  '/customers/resend-invite',
+  integrationRateLimiter,
+  authenticateIntegrationRequest,
+  resendInviteValidation,
+  resendInviteController
 )
 
 export default router

@@ -19,6 +19,7 @@ import {
   getAdminNotifications,
   markAdminNotificationRead,
   markAllAdminNotificationsRead,
+  resendCustomerInvite,
 } from '../controllers/admin.controller'
 import { authenticate } from '../middlewares/auth.middleware'
 import { requireAdmin } from '../middlewares/admin.middleware'
@@ -42,6 +43,7 @@ router.get('/users', getAllUsers)
 router.get('/users/:id', getUserById)
 router.put('/users/:id', updateUser)
 router.delete('/users/:id', deleteUser)
+router.post('/users/:id/resend-invite', resendCustomerInvite)
 
 // Driver management
 router.get('/drivers', getAllDrivers)

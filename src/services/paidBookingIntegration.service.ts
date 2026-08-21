@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import mongoose from 'mongoose'
 import { Booking, IBooking } from '../models/Booking.model'
 import { User, IUser } from '../models/User.model'
+import { buildOnboardingInviteEmail } from '../emails/onboardingInvite.template'
 import { notificationService } from './notification.service'
 
 type IntegrationPayload = {
@@ -75,7 +76,7 @@ function buildFirstAccessInviteUrl(email: string, token: string): string {
   return `${frontendBase}/first-access?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`
 }
 
-async function sendOnboardingInvite(user: IUser): Promise<'sent' | 'failed'> {
+export async function sendOnboardingInvite(user: IUser): Promise<'sent' | 'failed'> {
   try {
     const rawToken = crypto.randomBytes(32).toString('hex')
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex')
@@ -85,28 +86,18 @@ async function sendOnboardingInvite(user: IUser): Promise<'sent' | 'failed'> {
     await user.save()
 
     const inviteUrl = buildFirstAccessInviteUrl(user.email, rawToken)
-    const textBody = [
-      `Welcome ${user.name},`,
-      '',
-      'Your Local Van booking is confirmed. Set your password to access your account:',
+    const emailContent = buildOnboardingInviteEmail({
+      customerName: user.name,
       inviteUrl,
-      '',
-      'This link expires in 7 days. If you did not expect this email, please ignore it.',
-    ].join('\n')
-
-    const htmlBody = `
-      <p>Welcome ${user.name},</p>
-      <p>Your Local Van booking is confirmed. Set your password to access your account:</p>
-      <p><a href="${inviteUrl}">Complete account setup</a></p>
-      <p>Or copy this link:<br>${inviteUrl}</p>
-      <p>This link expires in 7 days. If you did not expect this email, please ignore it.</p>
-    `
+      supportEmail: process.env.SMTP_FROM_EMAIL || 'info@local-van.com',
+      websiteUrl: 'https://local-van.com',
+    })
 
     await notificationService.sendEmail(
       user.email,
-      'Complete your Local Van account setup',
-      textBody,
-      htmlBody
+      emailContent.subject,
+      emailContent.text,
+      emailContent.html
     )
 
     return 'sent'
@@ -114,6 +105,22 @@ async function sendOnboardingInvite(user: IUser): Promise<'sent' | 'failed'> {
     console.error('Failed to send onboarding invite:', error)
     return 'failed'
   }
+}
+
+export async function resendOnboardingInviteByEmail(
+  email: string
+): Promise<{ inviteStatus: 'sent' | 'failed'; customerId: string }> {
+  const normalizedEmail = normalizeEmail(email)
+  const user = await User.findOne({ email: normalizedEmail })
+  if (!user) {
+    throw Object.assign(new Error('Customer not found'), { statusCode: 404 })
+  }
+  if (user.role !== 'customer') {
+    throw Object.assign(new Error('User is not a customer'), { statusCode: 400 })
+  }
+
+  const inviteStatus = await sendOnboardingInvite(user)
+  return { inviteStatus, customerId: user._id.toString() }
 }
 
 function toBookingCreateData(payload: IntegrationPayload, customerId: string): Partial<IBooking> {
