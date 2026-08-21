@@ -65,6 +65,9 @@ export interface IUser extends Document {
     createdAt: Date
     type?: 'call' | 'issue' | 'general'
   }[]
+  // Paid-booking onboarding invite
+  firstAccessToken?: string
+  firstAccessExpires?: Date
   createdAt: Date
   updatedAt: Date
   comparePassword(candidatePassword: string): Promise<boolean>
@@ -102,6 +105,14 @@ const userSchema = new Schema<IUser>(
     isActive: {
       type: Boolean,
       default: true,
+    },
+    firstAccessToken: {
+      type: String,
+      select: false,
+    },
+    firstAccessExpires: {
+      type: Date,
+      select: false,
     },
     username: {
       type: String,

@@ -7,6 +7,8 @@ import {
   logout,
   updateProfile,
   changePassword,
+  verifyFirstAccess,
+  completeFirstAccess,
 } from '../controllers/auth.controller'
 import { authenticate } from '../middlewares/auth.middleware'
 
@@ -53,9 +55,18 @@ const updateProfileValidation = [
   handleValidationErrors,
 ]
 
+const firstAccessValidation = [
+  body('email').isEmail().normalizeEmail(),
+  body('token').isString().trim().notEmpty(),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  handleValidationErrors,
+]
+
 // Routes
 router.post('/register', registerValidation, register)
 router.post('/login', loginValidation, login)
+router.get('/first-access', verifyFirstAccess)
+router.post('/first-access', firstAccessValidation, completeFirstAccess)
 router.get('/me', authenticate, getCurrentUser)
 router.post('/logout', authenticate, logout)
 router.put('/profile', authenticate, updateProfileValidation, updateProfile)

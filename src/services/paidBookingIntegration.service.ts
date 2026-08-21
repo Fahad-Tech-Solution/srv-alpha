@@ -70,28 +70,48 @@ function createRandomBootstrapPassword(): string {
   return `${crypto.randomBytes(16).toString('hex')}1A!`
 }
 
+function buildFirstAccessInviteUrl(email: string, token: string): string {
+  const frontendBase = (process.env.CUSTOMER_APP_URL || 'http://localhost:3000').replace(/\/$/, '')
+  return `${frontendBase}/first-access?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`
+}
+
 async function sendOnboardingInvite(user: IUser): Promise<'sent' | 'failed'> {
   try {
-    const tokenSecret = process.env.MAGIC_LINK_SECRET || process.env.JWT_SECRET
-    if (!tokenSecret) {
-      return 'failed'
-    }
+    const rawToken = crypto.randomBytes(32).toString('hex')
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex')
 
-    const token = crypto
-      .createHmac('sha256', tokenSecret)
-      .update(`${user.email}.${Date.now().toString()}.${crypto.randomBytes(8).toString('hex')}`)
-      .digest('hex')
+    user.firstAccessToken = tokenHash
+    user.firstAccessExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    await user.save()
 
-    const frontendBase = process.env.CUSTOMER_APP_URL || 'http://localhost:5173'
-    const inviteUrl = `${frontendBase}/first-access?token=${token}&email=${encodeURIComponent(user.email)}`
+    const inviteUrl = buildFirstAccessInviteUrl(user.email, rawToken)
+    const textBody = [
+      `Welcome ${user.name},`,
+      '',
+      'Your Local Van booking is confirmed. Set your password to access your account:',
+      inviteUrl,
+      '',
+      'This link expires in 7 days. If you did not expect this email, please ignore it.',
+    ].join('\n')
+
+    const htmlBody = `
+      <p>Welcome ${user.name},</p>
+      <p>Your Local Van booking is confirmed. Set your password to access your account:</p>
+      <p><a href="${inviteUrl}">Complete account setup</a></p>
+      <p>Or copy this link:<br>${inviteUrl}</p>
+      <p>This link expires in 7 days. If you did not expect this email, please ignore it.</p>
+    `
+
     await notificationService.sendEmail(
       user.email,
-      'Complete your account setup',
-      `Welcome ${user.name},\n\nSet your password using this secure link:\n${inviteUrl}\n\nIf you did not expect this email, please ignore it.`
+      'Complete your Local Van account setup',
+      textBody,
+      htmlBody
     )
 
     return 'sent'
   } catch (error) {
+    console.error('Failed to send onboarding invite:', error)
     return 'failed'
   }
 }

@@ -1,8 +1,12 @@
+import crypto from 'crypto'
 import { Request, Response, NextFunction } from 'express'
 import { User } from '../models/User.model'
 import { generateToken } from '../utils/jwt'
-import { createError } from '../middlewares/errorHandler'
 import { AuthRequest } from '../middlewares/auth.middleware'
+
+function hashFirstAccessToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex')
+}
 
 export const register = async (
   req: Request,
@@ -234,6 +238,106 @@ export const changePassword = async (
 
     res.json({
       message: 'Password changed successfully',
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const verifyFirstAccess = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const email = String(req.query.email || '')
+      .trim()
+      .toLowerCase()
+    const token = String(req.query.token || '').trim()
+
+    if (!email || !token) {
+      res.status(400).json({ message: 'Email and token are required' })
+      return
+    }
+
+    const user = await User.findOne({ email }).select('+firstAccessToken +firstAccessExpires')
+    if (
+      !user ||
+      !user.firstAccessToken ||
+      !user.firstAccessExpires ||
+      user.firstAccessExpires.getTime() < Date.now() ||
+      user.firstAccessToken !== hashFirstAccessToken(token)
+    ) {
+      res.status(400).json({ message: 'Invalid or expired invite link' })
+      return
+    }
+
+    res.json({
+      valid: true,
+      email: user.email,
+      name: user.name,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const completeFirstAccess = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const email = String(req.body.email || '')
+      .trim()
+      .toLowerCase()
+    const token = String(req.body.token || '').trim()
+    const password = String(req.body.password || '')
+
+    if (!email || !token || !password) {
+      res.status(400).json({ message: 'Email, token, and password are required' })
+      return
+    }
+
+    if (password.length < 6) {
+      res.status(400).json({ message: 'Password must be at least 6 characters' })
+      return
+    }
+
+    const user = await User.findOne({ email }).select(
+      '+password +firstAccessToken +firstAccessExpires'
+    )
+    if (
+      !user ||
+      !user.firstAccessToken ||
+      !user.firstAccessExpires ||
+      user.firstAccessExpires.getTime() < Date.now() ||
+      user.firstAccessToken !== hashFirstAccessToken(token)
+    ) {
+      res.status(400).json({ message: 'Invalid or expired invite link' })
+      return
+    }
+
+    user.password = password
+    user.firstAccessToken = undefined
+    user.firstAccessExpires = undefined
+    await user.save()
+
+    const authToken = generateToken({
+      userId: user._id.toString(),
+      email: user.email,
+      role: user.role,
+    })
+
+    res.json({
+      message: 'Account setup complete',
+      token: authToken,
+      user: {
+        id: user._id.toString(),
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
     })
   } catch (error) {
     next(error)
