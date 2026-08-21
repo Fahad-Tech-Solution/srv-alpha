@@ -3,11 +3,11 @@ export type OnboardingInviteEmailInput = {
   inviteUrl: string
   supportEmail?: string
   websiteUrl?: string
+  logoUrl?: string
 }
 
 const BRAND = {
   yellow: '#F5C518',
-  yellowDark: '#E0B000',
   navy: '#0B1F33',
   ink: '#1A2332',
   muted: '#5B6775',
@@ -15,6 +15,8 @@ const BRAND = {
   bg: '#F4F6F8',
   white: '#FFFFFF',
 }
+
+const DEFAULT_LOGO_URL = 'https://local-van.com/oobevyhe/2020/05/LOCAL-VAN-LOGO.png'
 
 export function buildOnboardingInviteEmail(input: OnboardingInviteEmailInput): {
   subject: string
@@ -24,6 +26,7 @@ export function buildOnboardingInviteEmail(input: OnboardingInviteEmailInput): {
   const name = input.customerName?.trim() || 'there'
   const supportEmail = input.supportEmail || 'info@local-van.com'
   const websiteUrl = input.websiteUrl || 'https://local-van.com'
+  const logoUrl = input.logoUrl || process.env.EMAIL_LOGO_URL || DEFAULT_LOGO_URL
   const subject = 'Complete your Local Van account setup'
 
   const text = [
@@ -54,11 +57,18 @@ export function buildOnboardingInviteEmail(input: OnboardingInviteEmailInput): {
       <td align="center">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:${BRAND.white};border-radius:12px;overflow:hidden;border:1px solid ${BRAND.border};">
           <tr>
-            <td style="background:${BRAND.navy};padding:22px 28px;">
+            <td style="background:${BRAND.navy};padding:20px 28px;">
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td style="vertical-align:middle;">
-                    <span style="display:inline-block;background:${BRAND.yellow};color:${BRAND.navy};font-weight:700;font-size:14px;letter-spacing:0.4px;padding:6px 10px;border-radius:6px;">LOCAL VAN</span>
+                    <a href="${websiteUrl}" style="text-decoration:none;">
+                      <img
+                        src="${logoUrl}"
+                        alt="Local Van"
+                        width="160"
+                        style="display:block;width:160px;max-width:70%;height:auto;border:0;outline:none;text-decoration:none;"
+                      />
+                    </a>
                   </td>
                   <td align="right" style="vertical-align:middle;">
                     <a href="${websiteUrl}" style="color:${BRAND.white};text-decoration:none;font-size:13px;opacity:0.9;">local-van.com</a>

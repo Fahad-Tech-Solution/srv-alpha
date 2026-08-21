@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // CHANGE THIS and set the same value in Render MAIL_RELAY_SECRET
-$RELAY_SECRET = 'local-van-mail-relay-change-me';
+$RELAY_SECRET = 'Lv_relay_9f3a2c7e1b8d4e6f0a2c';
 
 $provided = $_SERVER['HTTP_X_MAIL_RELAY_SECRET'] ?? '';
 if (!hash_equals($RELAY_SECRET, $provided)) {

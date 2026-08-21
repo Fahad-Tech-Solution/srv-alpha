@@ -71,9 +71,42 @@ function createRandomBootstrapPassword(): string {
   return `${crypto.randomBytes(16).toString('hex')}1A!`
 }
 
+function resolveCustomerAppUrl(): string {
+  const productionDefault = 'https://fahad-tech-solution.github.io/Local-Van/#'
+  const configured = (process.env.CUSTOMER_APP_URL || '').trim()
+  const isLocalhost = /localhost|127\.0\.0\.1/i.test(configured)
+
+  // Never ship localhost invite links from production (common Render misconfig)
+  if (process.env.NODE_ENV === 'production') {
+    if (!configured || isLocalhost) {
+      console.warn(
+        JSON.stringify({
+          scope: 'integration.booking.upsertPaid',
+          event: 'customer_app_url_fallback',
+          reason: !configured ? 'missing' : 'localhost_in_production',
+          configured: configured || null,
+          using: productionDefault,
+          at: new Date().toISOString(),
+        })
+      )
+      return productionDefault
+    }
+    return configured
+  }
+
+  return configured || 'http://localhost:3000/#'
+}
+
 function buildFirstAccessInviteUrl(email: string, token: string): string {
-  const frontendBase = (process.env.CUSTOMER_APP_URL || 'http://localhost:3000').replace(/\/$/, '')
-  return `${frontendBase}/first-access?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`
+  let base = resolveCustomerAppUrl().replace(/\/+$/, '')
+  // HashRouter links must be .../#/first-access?...
+  if (!base.includes('#')) {
+    base = `${base}/#`
+  } else if (!base.endsWith('#')) {
+    base = `${base.replace(/#.*$/, '')}/#`
+  }
+
+  return `${base}/first-access?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`
 }
 
 export async function sendOnboardingInvite(user: IUser): Promise<'sent' | 'failed'> {
