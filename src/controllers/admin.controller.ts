@@ -13,6 +13,7 @@ import {
 } from '../utils/bookingAssignment'
 import { AdminNotification } from '../models/AdminNotification.model'
 import { resendOnboardingInviteByEmail } from '../services/paidBookingIntegration.service'
+import { createManualBooking } from '../services/manualBooking.service'
 
 // Get dashboard statistics
 export const getAdminStats = async (
@@ -320,6 +321,30 @@ export const getAllBookings = async (
       },
     })
   } catch (error) {
+    next(error)
+  }
+}
+
+// Create booking manually (admin — phone/direct-pay orders)
+export const createBookingAdmin = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const result = await createManualBooking(req.body)
+
+    res.status(201).json({
+      message: 'Booking created successfully',
+      booking: result.booking,
+      customerStatus: result.customerStatus,
+      emails: result.emails,
+    })
+  } catch (error: any) {
+    if (error.statusCode) {
+      res.status(error.statusCode).json({ message: error.message })
+      return
+    }
     next(error)
   }
 }

@@ -63,15 +63,27 @@ function logAudit(event: string, payload: Record<string, unknown>): void {
   )
 }
 
-function normalizeEmail(email: string): string {
+export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
+}
+
+export type CustomerInput = {
+  email: string
+  name: string
+  phone: string
+}
+
+export type FindOrCreateCustomerResult = {
+  customer: IUser
+  customerStatus: 'existing' | 'created'
+  inviteStatus: 'not_required' | 'sent' | 'failed'
 }
 
 function createRandomBootstrapPassword(): string {
   return `${crypto.randomBytes(16).toString('hex')}1A!`
 }
 
-function resolveCustomerAppUrl(): string {
+export function resolveCustomerAppUrl(): string {
   const productionDefault = 'https://fahad-tech-solution.github.io/Local-Van/#'
   const configured = (process.env.CUSTOMER_APP_URL || '').trim()
   const isLocalhost = /localhost|127\.0\.0\.1/i.test(configured)
@@ -138,6 +150,64 @@ export async function sendOnboardingInvite(user: IUser): Promise<'sent' | 'faile
     console.error('Failed to send onboarding invite:', error)
     return 'failed'
   }
+}
+
+export async function findOrCreateCustomer(
+  input: CustomerInput,
+  options?: { sendInviteOnCreate?: boolean; auditScope?: string; auditContext?: Record<string, unknown> }
+): Promise<FindOrCreateCustomerResult> {
+  const normalizedEmail = normalizeEmail(input.email)
+  const sendInviteOnCreate = options?.sendInviteOnCreate ?? true
+  const auditScope = options?.auditScope ?? 'integration.booking.upsertPaid'
+
+  let customer = await User.findOne({ email: normalizedEmail })
+  let customerStatus: 'existing' | 'created' = 'existing'
+  let inviteStatus: 'not_required' | 'sent' | 'failed' = 'not_required'
+
+  if (!customer) {
+    customerStatus = 'created'
+    customer = await User.create({
+      email: normalizedEmail,
+      password: createRandomBootstrapPassword(),
+      name: input.name || normalizedEmail.split('@')[0],
+      role: 'customer',
+      phone: input.phone || '',
+    })
+
+    if (sendInviteOnCreate) {
+      inviteStatus = await sendOnboardingInvite(customer)
+    }
+
+    console.log(
+      JSON.stringify({
+        scope: auditScope,
+        event: 'customer_created',
+        customerEmail: normalizedEmail,
+        customerId: customer._id.toString(),
+        inviteStatus,
+        ...(options?.auditContext ?? {}),
+        at: new Date().toISOString(),
+      })
+    )
+  } else {
+    if (input.phone && customer.phone !== input.phone) {
+      customer.phone = input.phone
+      await customer.save()
+    }
+
+    console.log(
+      JSON.stringify({
+        scope: auditScope,
+        event: 'customer_matched',
+        customerEmail: normalizedEmail,
+        customerId: customer._id.toString(),
+        ...(options?.auditContext ?? {}),
+        at: new Date().toISOString(),
+      })
+    )
+  }
+
+  return { customer, customerStatus, inviteStatus }
 }
 
 export async function resendOnboardingInviteByEmail(
@@ -220,43 +290,16 @@ export async function upsertPaidBooking(payload: IntegrationPayload): Promise<Up
     }
   }
 
-  let customer = await User.findOne({ email: normalizedEmail })
-  let customerStatus: 'existing' | 'created' = 'existing'
-  let inviteStatus: 'not_required' | 'sent' | 'failed' = 'not_required'
-
-  if (!customer) {
-    customerStatus = 'created'
-    customer = await User.create({
-      email: normalizedEmail,
-      password: createRandomBootstrapPassword(),
-      name: payload.customer.name || normalizedEmail.split('@')[0],
-      role: 'customer',
-      phone: payload.customer.phone || '',
-    })
-
-    inviteStatus = await sendOnboardingInvite(customer)
-    logAudit('customer_created', {
-      orderCode: payload.orderCode,
-      paymentReference: payload.paymentReference,
-      idempotencyKey: payload.idempotencyKey,
-      customerEmail: normalizedEmail,
-      customerId: customer._id.toString(),
-      inviteStatus,
-    })
-  } else {
-    if (payload.customer.phone && customer.phone !== payload.customer.phone) {
-      customer.phone = payload.customer.phone
-      await customer.save()
-    }
-
-    logAudit('customer_matched', {
-      orderCode: payload.orderCode,
-      paymentReference: payload.paymentReference,
-      idempotencyKey: payload.idempotencyKey,
-      customerEmail: normalizedEmail,
-      customerId: customer._id.toString(),
-    })
+  const auditContext = {
+    orderCode: payload.orderCode,
+    paymentReference: payload.paymentReference,
+    idempotencyKey: payload.idempotencyKey,
   }
+
+  const { customer, customerStatus, inviteStatus } = await findOrCreateCustomer(
+    payload.customer,
+    { sendInviteOnCreate: true, auditContext }
+  )
 
   const booking = await Booking.create(toBookingCreateData(payload, customer._id.toString()))
 

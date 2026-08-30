@@ -31,4 +31,3 @@ export const verifyToken = (token: string): TokenPayload => {
     throw new Error('Invalid or expired token')
   }
 }
-
