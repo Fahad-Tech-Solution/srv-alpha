@@ -1,6 +1,6 @@
+
 # Dependencies
 node_modules/
-
 .pnp
 .pnp.js
 
@@ -12,6 +12,7 @@ coverage/
 dist/
 build/
 *.log
+*.zip
 
 # Environment variables
 .env
@@ -19,6 +20,17 @@ build/
 .env.development.local
 .env.test.local
 .env.production.local
+
+
+
+.env
+.env.*
+!.env.example
+
+
+coverage/
+
+
 
 # IDE
 .vscode/
