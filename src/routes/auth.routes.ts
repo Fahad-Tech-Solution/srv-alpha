@@ -10,7 +10,12 @@ import {
   verifyFirstAccess,
   completeFirstAccess,
 } from '../controllers/auth.controller'
+import {
+  submitApplication,
+  uploadApplicationFile,
+} from '../controllers/driverApplication.controller'
 import { authenticate } from '../middlewares/auth.middleware'
+import { applicationUpload } from '../middlewares/applicationUpload.middleware'
 
 const router = Router()
 
@@ -62,9 +67,29 @@ const firstAccessValidation = [
   handleValidationErrors,
 ]
 
+const driverApplicationValidation = [
+  body('name').trim().notEmpty().withMessage('Name is required'),
+  body('email').isEmail().normalizeEmail(),
+  body('phone').optional().trim(),
+  body('username').optional().trim(),
+  body('address').optional().trim(),
+  body('businessName').optional().trim(),
+  handleValidationErrors,
+]
+
 // Routes
 router.post('/register', registerValidation, register)
 router.post('/login', loginValidation, login)
+router.post('/driver-application', driverApplicationValidation, submitApplication)
+router.post('/driver-application/upload', (req, res, next) => {
+  applicationUpload(req, res, (err) => {
+    if (err) {
+      res.status(400).json({ message: err.message || 'Upload failed' })
+      return
+    }
+    next()
+  })
+}, uploadApplicationFile)
 router.get('/first-access', verifyFirstAccess)
 router.post('/first-access', firstAccessValidation, completeFirstAccess)
 router.get('/me', authenticate, getCurrentUser)
