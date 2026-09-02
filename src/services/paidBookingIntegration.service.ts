@@ -79,7 +79,7 @@ export type FindOrCreateCustomerResult = {
   inviteStatus: 'not_required' | 'sent' | 'failed'
 }
 
-function createRandomBootstrapPassword(): string {
+export function createRandomBootstrapPassword(): string {
   return `${crypto.randomBytes(16).toString('hex')}1A!`
 }
 
@@ -109,7 +109,7 @@ export function resolveCustomerAppUrl(): string {
   return configured || 'http://localhost:3000/#'
 }
 
-function buildFirstAccessInviteUrl(email: string, token: string): string {
+export function buildFirstAccessInviteUrl(email: string, token: string): string {
   let base = resolveCustomerAppUrl().replace(/\/+$/, '')
   // HashRouter links must be .../#/first-access?...
   if (!base.includes('#')) {

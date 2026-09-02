@@ -12,7 +12,11 @@ import {
   supersedePendingOffers,
 } from '../utils/bookingAssignment'
 import { AdminNotification } from '../models/AdminNotification.model'
-import { resendOnboardingInviteByEmail } from '../services/paidBookingIntegration.service'
+import { resendOnboardingInviteByEmail, sendOnboardingInvite, createRandomBootstrapPassword } from '../services/paidBookingIntegration.service'
+import {
+  approveDriverApplication,
+  rejectDriverApplication,
+} from '../services/driverApplication.service'
 import { createManualBooking } from '../services/manualBooking.service'
 
 // Get dashboard statistics
@@ -141,12 +145,15 @@ export const getAllUsers = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { role, page = 1, limit = 10, search } = req.query
+    const { role, page = 1, limit = 10, search, applicationStatus } = req.query
     const skip = (Number(page) - 1) * Number(limit)
 
     const query: any = {}
     if (role) {
       query.role = role
+    }
+    if (applicationStatus) {
+      query.applicationStatus = applicationStatus
     }
     if (search) {
       query.$or = [
@@ -249,6 +256,104 @@ export const updateUser = async (
       user: userResponse,
     })
   } catch (error) {
+    next(error)
+  }
+}
+
+export const createUser = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { name, email, role, phone, sendInvite = true } = req.body
+
+    if (!['admin', 'driver', 'customer'].includes(role)) {
+      res.status(400).json({ message: 'Role must be admin, driver, or customer' })
+      return
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase()
+    const existing = await User.findOne({ email: normalizedEmail })
+    if (existing) {
+      res.status(400).json({ message: 'User with this email already exists' })
+      return
+    }
+
+    const user = await User.create({
+      email: normalizedEmail,
+      password: createRandomBootstrapPassword(),
+      name: String(name).trim(),
+      role,
+      phone: phone?.trim() || undefined,
+      isActive: true,
+      applicationStatus: role === 'driver' ? 'approved' : undefined,
+      applicationReviewedAt: role === 'driver' ? new Date() : undefined,
+    })
+
+    let inviteStatus: 'not_required' | 'sent' | 'failed' = 'not_required'
+    if (sendInvite) {
+      inviteStatus = await sendOnboardingInvite(user)
+    }
+
+    const userResponse = user.toObject()
+    delete (userResponse as any).password
+
+    res.status(201).json({
+      message: 'User created successfully',
+      user: userResponse,
+      inviteStatus,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const approveDriverApplicationAdmin = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const result = await approveDriverApplication(id)
+    res.json({
+      message:
+        result.inviteStatus === 'sent'
+          ? 'Application approved and setup email sent'
+          : 'Application approved but setup email failed to send',
+      ...result,
+    })
+  } catch (error: any) {
+    if (error?.statusCode) {
+      res.status(error.statusCode).json({ message: error.message })
+      return
+    }
+    next(error)
+  }
+}
+
+export const rejectDriverApplicationAdmin = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const { note } = req.body
+    const result = await rejectDriverApplication(id, note)
+    res.json({
+      message:
+        result.emailStatus === 'sent'
+          ? 'Application rejected and applicant notified'
+          : 'Application rejected but notification email failed',
+      ...result,
+    })
+  } catch (error: any) {
+    if (error?.statusCode) {
+      res.status(error.statusCode).json({ message: error.message })
+      return
+    }
     next(error)
   }
 }

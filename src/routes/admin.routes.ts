@@ -4,8 +4,11 @@ import {
   getAdminStats,
   getAllUsers,
   getUserById,
+  createUser,
   updateUser,
   deleteUser,
+  approveDriverApplicationAdmin,
+  rejectDriverApplicationAdmin,
   getAllBookings,
   createBookingAdmin,
   updateBookingAdmin,
@@ -94,9 +97,12 @@ router.post('/notifications/:id/read', markAdminNotificationRead)
 
 // User management
 router.get('/users', getAllUsers)
+router.post('/users', createUser)
 router.get('/users/:id', getUserById)
 router.put('/users/:id', updateUser)
 router.delete('/users/:id', deleteUser)
+router.post('/users/:id/approve-application', approveDriverApplicationAdmin)
+router.post('/users/:id/reject-application', rejectDriverApplicationAdmin)
 router.post('/users/:id/resend-invite', resendCustomerInvite)
 
 // Driver management

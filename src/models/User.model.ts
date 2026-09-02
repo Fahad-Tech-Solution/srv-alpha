@@ -68,6 +68,12 @@ export interface IUser extends Document {
   // Paid-booking onboarding invite
   firstAccessToken?: string
   firstAccessExpires?: Date
+  // Driver application workflow
+  applicationStatus?: 'pending' | 'approved' | 'rejected'
+  applicationSubmittedAt?: Date
+  applicationReviewedAt?: Date
+  applicationReviewNote?: string
+  introductionVideoUrl?: string
   createdAt: Date
   updatedAt: Date
   comparePassword(candidatePassword: string): Promise<boolean>
@@ -113,6 +119,20 @@ const userSchema = new Schema<IUser>(
     firstAccessExpires: {
       type: Date,
       select: false,
+    },
+    applicationStatus: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+    },
+    applicationSubmittedAt: Date,
+    applicationReviewedAt: Date,
+    applicationReviewNote: {
+      type: String,
+      trim: true,
+    },
+    introductionVideoUrl: {
+      type: String,
+      trim: true,
     },
     username: {
       type: String,

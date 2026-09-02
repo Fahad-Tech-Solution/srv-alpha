@@ -164,6 +164,40 @@ export class CloudinaryService {
   }
 
   /**
+   * Upload video to Cloudinary (driver introduction, etc.)
+   */
+  async uploadVideo(
+    file: Express.Multer.File,
+    options: UploadOptions = {}
+  ): Promise<{ url: string; publicId: string }> {
+    this.ensureConfigured()
+
+    const maxSize = 25 * 1024 * 1024
+    if (file.size > maxSize) {
+      throw new Error('Video size exceeds 25MB limit')
+    }
+
+    return new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: options.folder || 'driver-applications/videos',
+          resource_type: 'video',
+        },
+        (error, result) => {
+          if (error) {
+            reject(new Error(`Failed to upload video: ${error.message}`))
+          } else if (result) {
+            resolve({ url: result.secure_url, publicId: result.public_id })
+          } else {
+            reject(new Error('No result from Cloudinary'))
+          }
+        }
+      )
+      uploadStream.end(file.buffer)
+    })
+  }
+
+  /**
    * Delete image from Cloudinary
    */
   async deleteImage(publicId: string): Promise<void> {

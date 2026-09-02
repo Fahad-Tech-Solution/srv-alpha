@@ -23,12 +23,22 @@ export const register = async (
       return
     }
 
+    // Only customers can self-register publicly
+    const allowedRole = role === 'customer' ? 'customer' : 'customer'
+    if (role && role !== 'customer') {
+      res.status(400).json({
+        message:
+          'Driver applications must use the driver application form. Admin accounts can only be created by existing admins.',
+      })
+      return
+    }
+
     // Create new user
     const user = await User.create({
       email,
       password,
       name,
-      role: role || 'customer',
+      role: allowedRole,
     })
 
     // Generate token
@@ -69,6 +79,20 @@ export const login = async (
 
     // Check if user is active
     if (!user.isActive) {
+      if (user.role === 'driver' && user.applicationStatus === 'pending') {
+        res.status(401).json({
+          message: 'Your driver application is under review. We will email you once a decision has been made.',
+        })
+        return
+      }
+      if (user.role === 'driver' && user.applicationStatus === 'rejected') {
+        res.status(401).json({
+          message:
+            user.applicationReviewNote ||
+            'Your driver application was not approved. Contact info@local-van.com if you have questions.',
+        })
+        return
+      }
       res.status(401).json({ message: 'Account is deactivated' })
       return
     }
