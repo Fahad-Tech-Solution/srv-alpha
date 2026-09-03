@@ -943,6 +943,12 @@ export const recordAdditionalWorkPayment = async (
       return
     }
 
+    const note = typeof description === 'string' ? description.trim() : ''
+    if (!note) {
+      res.status(400).json({ message: 'A note explaining the additional amount is required' })
+      return
+    }
+
     const booking = await Booking.findById(id)
     if (!booking) {
       res.status(404).json({ message: 'Booking not found' })
@@ -950,9 +956,7 @@ export const recordAdditionalWorkPayment = async (
     }
 
     booking.additionalWorkPayment = amount
-    if (description) {
-      booking.additionalWorkDescription = description
-    }
+    booking.additionalWorkDescription = note
 
     // Update final price to include additional work
     const basePrice = booking.finalPrice || booking.estimatedPrice
