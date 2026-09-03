@@ -67,7 +67,7 @@ const createBookingValidation = [
   body('pickupStairsCount').optional().isInt({ min: 1, max: 50 }),
   body('deliveryAccess').optional().isIn(['lift', 'stairs', 'ground']),
   body('deliveryStairsCount').optional().isInt({ min: 1, max: 50 }),
-  body('men').isInt({ min: 1, max: 20 }),
+  body('men').isInt({ min: 1, max: 6 }),
   body().custom((value, { req }) => {
     if (req.body.paymentStatus === 'paid' && !req.body.paymentMethod) {
       throw new Error('Payment method is required when payment status is paid')

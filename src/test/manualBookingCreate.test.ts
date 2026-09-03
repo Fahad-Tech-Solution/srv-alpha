@@ -80,6 +80,13 @@ describe('admin manual booking create', () => {
     expect(response.body.booking.manRequired).toBe('2 people')
 
     expect(notificationService.sendEmail).toHaveBeenCalledTimes(1)
+    expect(notificationService.sendEmail).toHaveBeenCalledWith(
+      customer.email,
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+      expect.any(String)
+    )
 
     const bookings = await Booking.find({ customer: customer._id })
     expect(bookings).toHaveLength(1)

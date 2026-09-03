@@ -58,6 +58,10 @@ function formatPeopleRequired(men?: number): string | undefined {
   return men === 1 ? '1 person' : `${men} people`
 }
 
+function adminNotifyEmail(): string {
+  return process.env.ADMIN_NOTIFY_EMAIL || process.env.SMTP_FROM_EMAIL || 'info@local-van.com'
+}
+
 export type ManualBookingResult = {
   booking: IBooking
   customerStatus: 'existing' | 'created'
@@ -127,11 +131,16 @@ async function sendOrderConfirmationEmail(
       websiteUrl: 'https://local-van.com',
     })
 
+    const adminEmail = adminNotifyEmail()
+    const cc =
+      adminEmail.toLowerCase() !== booking.contactEmail.toLowerCase() ? adminEmail : undefined
+
     await notificationService.sendEmail(
       booking.contactEmail,
       emailContent.subject,
       emailContent.text,
-      emailContent.html
+      emailContent.html,
+      cc
     )
 
     return 'sent'

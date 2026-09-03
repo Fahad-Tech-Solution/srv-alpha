@@ -37,11 +37,19 @@ function getSmtpTransporter(): Transporter {
   return smtpTransporter
 }
 
+function normalizeCc(cc?: string | string[]): string[] | undefined {
+  if (!cc) return undefined
+  const list = Array.isArray(cc) ? cc : [cc]
+  const normalized = list.map((entry) => entry.trim()).filter(Boolean)
+  return normalized.length ? normalized : undefined
+}
+
 async function sendViaMailRelay(
   to: string,
   subject: string,
   text: string,
-  html: string
+  html: string,
+  cc?: string[]
 ): Promise<void> {
   const relayUrl = process.env.MAIL_RELAY_URL
   const relaySecret = process.env.MAIL_RELAY_SECRET
@@ -67,6 +75,7 @@ async function sendViaMailRelay(
         html,
         fromEmail: from.email,
         fromName: from.name,
+        ...(cc?.length ? { cc } : {}),
       }),
       signal: controller.signal,
     })
@@ -88,7 +97,8 @@ async function sendViaResend(
   to: string,
   subject: string,
   text: string,
-  html: string
+  html: string,
+  cc?: string[]
 ): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) {
@@ -105,6 +115,7 @@ async function sendViaResend(
     body: JSON.stringify({
       from: from.header,
       to: [to],
+      ...(cc?.length ? { cc } : {}),
       subject,
       text,
       html,
@@ -121,12 +132,14 @@ async function sendViaSmtp(
   to: string,
   subject: string,
   text: string,
-  html: string
+  html: string,
+  cc?: string[]
 ): Promise<void> {
   const mailer = getSmtpTransporter()
   await mailer.sendMail({
     from: getFromParts().header,
     to,
+    ...(cc?.length ? { cc } : {}),
     subject,
     text,
     html,
@@ -152,8 +165,15 @@ export class NotificationService {
     return resolveTransport()
   }
 
-  async sendEmail(to: string, subject: string, body: string, html?: string) {
+  async sendEmail(
+    to: string,
+    subject: string,
+    body: string,
+    html?: string,
+    cc?: string | string[]
+  ) {
     const htmlBody = html || body.replace(/\n/g, '<br>')
+    const ccList = normalizeCc(cc)
     const transport = resolveTransport()
 
     console.log(
@@ -161,23 +181,24 @@ export class NotificationService {
         scope: 'notification.sendEmail',
         transport,
         to,
+        cc: ccList ?? null,
         subject,
         at: new Date().toISOString(),
       })
     )
 
     if (transport === 'relay') {
-      await sendViaMailRelay(to, subject, body, htmlBody)
+      await sendViaMailRelay(to, subject, body, htmlBody, ccList)
       return
     }
 
     if (transport === 'resend') {
-      await sendViaResend(to, subject, body, htmlBody)
+      await sendViaResend(to, subject, body, htmlBody, ccList)
       return
     }
 
     try {
-      await sendViaSmtp(to, subject, body, htmlBody)
+      await sendViaSmtp(to, subject, body, htmlBody, ccList)
     } catch (error: any) {
       const code = error?.code || error?.errno || ''
       if (code === 'ETIMEDOUT' || code === 'ESOCKET' || code === 'ECONNECTION') {
