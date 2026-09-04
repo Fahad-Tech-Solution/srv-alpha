@@ -49,6 +49,11 @@ const SERVICE_TYPE_LABELS: Record<string, string> = {
 }
 
 const VEHICLE_TYPE_LABELS: Record<string, string> = {
+  small: 'Small',
+  medium: 'Medium',
+  large: 'Large',
+  luton: 'Luton',
+  'multi-van': 'Multi Van',
   'small-van': 'Small van',
   'medium-van': 'Medium van',
   'large-van': 'Large van',

@@ -28,7 +28,7 @@ export type ManualBookingInput = {
   deliveryCity: string
   deliveryZipCode: string
   serviceType: 'local' | 'long-distance' | 'interstate'
-  vehicleType: 'small-van' | 'medium-van' | 'large-van' | 'truck'
+  vehicleType: 'small' | 'medium' | 'large' | 'luton' | 'multi-van'
   price: number
   paymentStatus: 'paid' | 'pending'
   paymentMethod?: ManualBookingPaymentMethod

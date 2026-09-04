@@ -21,7 +21,7 @@ export interface IBooking extends Document {
   
   // Service details
   serviceType: 'local' | 'long-distance' | 'interstate'
-  vehicleType: 'small-van' | 'medium-van' | 'large-van' | 'truck'
+  vehicleType: 'small' | 'medium' | 'large' | 'luton' | 'multi-van' | 'small-van' | 'medium-van' | 'large-van' | 'truck'
   items?: {
     name: string
     quantity: number
@@ -160,7 +160,7 @@ const bookingSchema = new Schema<IBooking>(
     },
     vehicleType: {
       type: String,
-      enum: ['small-van', 'medium-van', 'large-van', 'truck'],
+      enum: ['small', 'medium', 'large', 'luton', 'multi-van', 'small-van', 'medium-van', 'large-van', 'truck'],
       required: [true, 'Vehicle type is required'],
     },
     items: [
