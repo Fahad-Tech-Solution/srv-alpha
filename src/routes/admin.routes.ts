@@ -13,6 +13,7 @@ import {
   createBookingAdmin,
   updateBookingAdmin,
   assignDriver,
+  reclaimBooking,
   getAllDrivers,
   handleDispute,
   sendEmailReminder,
@@ -27,6 +28,7 @@ import {
 } from '../controllers/admin.controller'
 import { authenticate } from '../middlewares/auth.middleware'
 import { requireAdmin } from '../middlewares/admin.middleware'
+import { SAFE_EMAIL_NORMALIZE } from '../utils/emailNormalize'
 
 const router = Router()
 
@@ -43,7 +45,7 @@ const handleValidationErrors = (req: any, res: any, next: any) => {
 
 const createBookingValidation = [
   body('customer.name').isString().trim().notEmpty(),
-  body('customer.email').isEmail().normalizeEmail(),
+  body('customer.email').isEmail().normalizeEmail(SAFE_EMAIL_NORMALIZE),
   body('customer.phone').isString().trim().notEmpty(),
   body('pickupAddress').isString().trim().notEmpty(),
   body('pickupCity').isString().trim().notEmpty(),
@@ -129,6 +131,7 @@ router.get('/bookings', getAllBookings)
 router.post('/bookings', createBookingValidation, createBookingAdmin)
 router.put('/bookings/:id', updateBookingAdmin)
 router.post('/bookings/:id/assign-driver', assignDriver)
+router.post('/bookings/:id/reclaim', reclaimBooking)
 router.post('/bookings/:id/handle-dispute', handleDispute)
 router.post('/bookings/:id/send-reminder', sendEmailReminder)
 router.post('/bookings/:id/offer-to-drivers', offerJobToDrivers)

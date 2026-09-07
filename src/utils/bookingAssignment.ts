@@ -66,6 +66,36 @@ export function clearAssignmentAndOffers(booking: IBooking, now = new Date()): v
   }
 }
 
+/** Take booking back from an assigned driver so it can be re-offered. */
+export function reclaimBookingFromDriver(booking: IBooking, now = new Date()): void {
+  if (booking.driverOffers?.length) {
+    for (const offer of booking.driverOffers) {
+      if (offer.status === 'pending') {
+        offer.status = 'rejected'
+        offer.respondedAt = now
+      } else if (offer.status === 'accepted') {
+        offer.status = 'superseded'
+        offer.respondedAt = now
+      }
+    }
+  }
+
+  booking.driver = undefined
+  booking.assignedAt = undefined
+  booking.assignedBy = undefined
+  booking.offeredToDrivers = []
+  booking.offerExpiresAt = undefined
+  booking.status = 'pending'
+}
+
+export function canReclaimForReoffer(booking: {
+  status: string
+  driver?: mongoose.Types.ObjectId | null
+}): boolean {
+  if (!hasAssignedDriver(booking)) return false
+  return ['confirmed', 'in-progress', 'offered'].includes(booking.status)
+}
+
 export function isOpenForDriverOffers(booking: {
   status: string
   driver?: mongoose.Types.ObjectId | null

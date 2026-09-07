@@ -9,6 +9,7 @@ import {
   cancelBooking,
 } from '../controllers/booking.controller'
 import { authenticate } from '../middlewares/auth.middleware'
+import { SAFE_EMAIL_NORMALIZE } from '../utils/emailNormalize'
 
 const router = Router()
 
@@ -33,7 +34,7 @@ const createBookingValidation = [
 
 // Validation middleware for public bookings (matches calculator JSON structure)
 const createPublicBookingValidation = [
-  body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
+  body('email').isEmail().normalizeEmail(SAFE_EMAIL_NORMALIZE).withMessage('Valid email is required'),
   body('name').optional().trim(),
   body('phone').optional().trim(),
   body('pickupAddress').trim().notEmpty().withMessage('Pickup address is required'),

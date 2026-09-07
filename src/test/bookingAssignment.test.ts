@@ -5,6 +5,7 @@ import {
   applyStatusSideEffects,
   clearAssignmentAndOffers,
   isOfferable,
+  reclaimBookingFromDriver,
   syncBookingStatusAfterOfferChanges,
 } from '../utils/bookingAssignment'
 
@@ -91,5 +92,38 @@ describe('bookingAssignment utils', () => {
     expect(booking.driver).toBeUndefined()
     expect(booking.assignedAt).toBeUndefined()
     expect(booking.offeredToDrivers).toEqual([])
+  })
+
+  it('reclaims assigned booking for re-offer', () => {
+    const acceptedDriver = new mongoose.Types.ObjectId()
+    const booking = createBookingStub({
+      status: 'confirmed',
+      driver: acceptedDriver,
+      assignedAt: new Date(),
+      offeredToDrivers: [],
+      driverOffers: [
+        {
+          driver: acceptedDriver,
+          offeredPrice: 120,
+          status: 'accepted',
+          offeredAt: new Date(),
+        },
+        {
+          driver: new mongoose.Types.ObjectId(),
+          offeredPrice: 100,
+          status: 'pending',
+          offeredAt: new Date(),
+        },
+      ],
+    })
+
+    reclaimBookingFromDriver(booking)
+
+    expect(booking.status).toBe('pending')
+    expect(booking.driver).toBeUndefined()
+    expect(booking.offeredToDrivers).toEqual([])
+    expect(booking.driverOffers?.[0]?.status).toBe('superseded')
+    expect(booking.driverOffers?.[1]?.status).toBe('rejected')
+    expect(isOfferable(booking)).toBe(true)
   })
 })

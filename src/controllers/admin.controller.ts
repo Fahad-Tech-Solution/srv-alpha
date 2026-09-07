@@ -7,8 +7,10 @@ import {
   applyStatusSideEffects,
   BookingStatus,
   canDirectAssign,
+  canReclaimForReoffer,
   hasAssignedDriver,
   isOfferable,
+  reclaimBookingFromDriver,
   supersedePendingOffers,
 } from '../utils/bookingAssignment'
 import { AdminNotification } from '../models/AdminNotification.model'
@@ -574,6 +576,65 @@ export const assignDriver = async (
 
     res.json({
       message: 'Driver assigned successfully',
+      booking,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+// Take booking back from assigned driver so it can be re-offered
+export const reclaimBooking = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const { note } = req.body as { note?: string }
+
+    const booking = await Booking.findById(id).populate('driver', 'name email')
+    if (!booking) {
+      res.status(404).json({ message: 'Booking not found' })
+      return
+    }
+
+    if (!canReclaimForReoffer(booking)) {
+      res.status(400).json({
+          message: hasAssignedDriver(booking)
+          ? 'Only confirmed, in-progress, or offered bookings with an assigned driver can be taken back for re-offer'
+          : 'This booking has no assigned driver to reclaim',
+      })
+      return
+    }
+
+    const previousDriver = booking.driver as any
+    const previousDriverName =
+      previousDriver && typeof previousDriver === 'object' && previousDriver.name
+        ? previousDriver.name
+        : 'previous driver'
+
+    reclaimBookingFromDriver(booking)
+
+    if (!booking.notes) {
+      booking.notes = []
+    }
+
+    booking.notes.push({
+      text:
+        note?.trim() ||
+        `Job taken back from ${previousDriverName} for re-offer`,
+      createdBy: new mongoose.Types.ObjectId(req.user!.userId),
+      createdAt: new Date(),
+      type: 'general',
+    })
+
+    await booking.save()
+    await booking.populate('customer', 'name email phone')
+    await booking.populate('notes.createdBy', 'name email')
+
+    res.json({
+      message: 'Booking reclaimed successfully. You can now re-offer the job.',
       booking,
     })
   } catch (error) {

@@ -5,6 +5,7 @@ import {
   integrationRateLimiter,
 } from '../middlewares/integrationAuth.middleware'
 import { upsertPaidBookingController, resendInviteController } from '../controllers/internalIntegration.controller'
+import { SAFE_EMAIL_NORMALIZE } from '../utils/emailNormalize'
 
 const router = Router()
 
@@ -17,7 +18,7 @@ const upsertPaidValidation = [
   body('paymentReference').isString().trim().notEmpty(),
   body('paymentProvider').isString().trim().notEmpty(),
   body('paidAt').isISO8601(),
-  body('customer.email').isEmail().normalizeEmail(),
+  body('customer.email').isEmail().normalizeEmail(SAFE_EMAIL_NORMALIZE),
   body('customer.name').isString().trim().notEmpty(),
   body('customer.phone').isString().trim().notEmpty(),
   body('booking.pickupAddress').isString().trim().notEmpty(),
@@ -35,7 +36,7 @@ const upsertPaidValidation = [
   body('booking.items').optional().isArray(),
 ]
 
-const resendInviteValidation = [body('email').isEmail().normalizeEmail()]
+const resendInviteValidation = [body('email').isEmail().normalizeEmail(SAFE_EMAIL_NORMALIZE)]
 
 router.post(
   '/bookings/upsert-paid',

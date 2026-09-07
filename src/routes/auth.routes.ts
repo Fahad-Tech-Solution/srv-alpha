@@ -16,6 +16,7 @@ import {
 } from '../controllers/driverApplication.controller'
 import { authenticate } from '../middlewares/auth.middleware'
 import { applicationUpload } from '../middlewares/applicationUpload.middleware'
+import { SAFE_EMAIL_NORMALIZE } from '../utils/emailNormalize'
 
 const router = Router()
 
@@ -33,14 +34,14 @@ const handleValidationErrors = (req: any, res: any, next: any) => {
 
 // Validation middleware
 const registerValidation = [
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().normalizeEmail(SAFE_EMAIL_NORMALIZE),
   body('password').isLength({ min: 6 }),
   body('name').trim().notEmpty(),
   handleValidationErrors,
 ]
 
 const loginValidation = [
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().normalizeEmail(SAFE_EMAIL_NORMALIZE),
   body('password').notEmpty(),
   handleValidationErrors,
 ]
@@ -61,7 +62,7 @@ const updateProfileValidation = [
 ]
 
 const firstAccessValidation = [
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().normalizeEmail(SAFE_EMAIL_NORMALIZE),
   body('token').isString().trim().notEmpty(),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
   handleValidationErrors,
@@ -69,7 +70,7 @@ const firstAccessValidation = [
 
 const driverApplicationValidation = [
   body('name').trim().notEmpty().withMessage('Name is required'),
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().normalizeEmail(SAFE_EMAIL_NORMALIZE),
   body('phone').optional().trim(),
   body('username').optional().trim(),
   body('address').optional().trim(),
