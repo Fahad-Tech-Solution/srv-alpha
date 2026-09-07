@@ -9,6 +9,7 @@ export type BookingStatus =
   | 'completed'
   | 'cancelled'
   | 'disputed'
+  | 'survey'
 
 export const OFFERABLE_STATUSES: BookingStatus[] = ['pending', 'offered']
 
@@ -20,7 +21,7 @@ export function hasAssignedDriver(booking: { driver?: mongoose.Types.ObjectId | 
 
 export function isOfferable(booking: { status: string; driver?: mongoose.Types.ObjectId | null }): boolean {
   if (hasAssignedDriver(booking)) return false
-  if (['completed', 'cancelled', 'disputed'].includes(booking.status)) return false
+  if (['completed', 'cancelled', 'disputed', 'survey'].includes(booking.status)) return false
   return OFFERABLE_STATUSES.includes(booking.status as BookingStatus)
 }
 
@@ -131,6 +132,7 @@ export function applyStatusSideEffects(
 
   switch (newStatus) {
     case 'pending':
+    case 'survey':
       clearAssignmentAndOffers(booking)
       break
 

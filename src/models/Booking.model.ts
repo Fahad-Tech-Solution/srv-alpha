@@ -3,7 +3,7 @@ import mongoose, { Document, Schema } from 'mongoose'
 export interface IBooking extends Document {
   customer: mongoose.Types.ObjectId
   driver?: mongoose.Types.ObjectId
-  status: 'pending' | 'offered' | 'confirmed' | 'in-progress' | 'completed' | 'cancelled' | 'disputed'
+  status: 'pending' | 'offered' | 'confirmed' | 'in-progress' | 'completed' | 'cancelled' | 'disputed' | 'survey'
   
   // Pickup details
   pickupAddress: string
@@ -112,7 +112,7 @@ const bookingSchema = new Schema<IBooking>(
     },
     status: {
       type: String,
-      enum: ['pending', 'offered', 'confirmed', 'in-progress', 'completed', 'cancelled', 'disputed'],
+      enum: ['pending', 'offered', 'confirmed', 'in-progress', 'completed', 'cancelled', 'disputed', 'survey'],
       default: 'pending',
     },
     pickupAddress: {

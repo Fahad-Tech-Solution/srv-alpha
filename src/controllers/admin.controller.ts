@@ -565,7 +565,7 @@ export const assignDriver = async (
     booking.offeredToDrivers = []
     booking.offerExpiresAt = undefined
 
-    if (['pending', 'offered'].includes(booking.status)) {
+    if (['pending', 'offered', 'survey'].includes(booking.status)) {
       booking.status = 'confirmed'
     }
 

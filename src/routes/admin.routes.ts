@@ -81,6 +81,7 @@ const createBookingValidation = [
   body('paymentReference').optional().isString().trim(),
   body('specialInstructions').optional().isString().trim(),
   body('sendConfirmationEmail').optional().isBoolean(),
+  body('status').optional().isIn(['pending', 'survey']),
   body('pickupAccess').optional().isIn(['lift', 'stairs', 'ground']),
   body('pickupStairsCount').optional().isInt({ min: 1, max: 50 }),
   body('deliveryAccess').optional().isIn(['lift', 'stairs', 'ground']),

@@ -35,6 +35,7 @@ export type ManualBookingInput = {
   paymentReference?: string
   specialInstructions?: string
   sendConfirmationEmail?: boolean
+  status?: 'pending' | 'survey'
   pickupAccess?: AccessType
   pickupStairsCount?: number
   deliveryAccess?: AccessType
@@ -161,7 +162,7 @@ function toManualBookingData(
 
   return {
     customer: new mongoose.Types.ObjectId(customerId),
-    status: 'pending',
+    status: input.status === 'survey' ? 'survey' : 'pending',
     contactEmail: normalizedEmail,
     contactPhone: input.customer.phone || '',
     pickupAddress: input.pickupAddress,
