@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { IUser, User } from '../models/User.model'
+import { AdminNotification } from '../models/AdminNotification.model'
 import {
   buildDriverApplicationAdminNotifyEmail,
   buildDriverApplicationApprovedEmail,
@@ -8,6 +9,7 @@ import {
 } from '../emails/driverApplication.template'
 import { notificationService } from './notification.service'
 import { buildFirstAccessInviteUrl, createRandomBootstrapPassword } from './paidBookingIntegration.service'
+import { emitAdminNotification } from '../utils/realtime'
 
 export type DriverApplicationInput = {
   name: string
@@ -148,7 +150,31 @@ async function notifyApplicationSubmitted(user: IUser): Promise<void> {
   await Promise.allSettled([
     notificationService.sendEmail(user.email, received.subject, received.text, received.html),
     notificationService.sendEmail(adminNotifyEmail(), admin.subject, admin.text, admin.html),
+    createDriverApplicationNotification(user),
   ])
+}
+
+async function createDriverApplicationNotification(user: IUser): Promise<void> {
+  try {
+    const notification = await AdminNotification.create({
+      type: 'driver_application',
+      title: 'New driver application',
+      message: `${user.name} (${user.email}) submitted a driver application.`,
+      driver: user._id,
+      driverName: user.name,
+      isRead: false,
+    })
+
+    const populated = await AdminNotification.findById(notification._id)
+      .populate('driver', 'name email')
+      .lean()
+
+    if (populated) {
+      emitAdminNotification(populated as Record<string, unknown>)
+    }
+  } catch (error) {
+    console.error('Failed to create driver application admin notification:', error)
+  }
 }
 
 export async function approveDriverApplication(userId: string): Promise<{

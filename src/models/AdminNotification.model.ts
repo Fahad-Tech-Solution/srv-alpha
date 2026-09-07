@@ -3,6 +3,7 @@ import mongoose, { Document, Schema } from 'mongoose'
 export type AdminNotificationType =
   | 'offer_accepted'
   | 'offer_rejected'
+  | 'driver_application'
   | 'general'
 
 export interface IAdminNotification extends Document {
@@ -25,7 +26,7 @@ const adminNotificationSchema = new Schema<IAdminNotification>(
   {
     type: {
       type: String,
-      enum: ['offer_accepted', 'offer_rejected', 'general'],
+      enum: ['offer_accepted', 'offer_rejected', 'driver_application', 'general'],
       required: true,
     },
     title: {
