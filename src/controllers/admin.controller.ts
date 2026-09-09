@@ -411,7 +411,7 @@ export const getAllBookings = async (
 
     const bookings = await Booking.find(query)
       .populate('customer', 'name email phone')
-      .populate('driver', 'name email phone')
+      .populate('driver', 'name email phone vehicleRegistration')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit))
@@ -475,13 +475,15 @@ export const updateBookingAdmin = async (
     const { status, driver, driverOffers, offeredToDrivers, assignedAt, assignedBy, ...safeUpdates } =
       updateData
 
+    const previousStatus = booking.status as BookingStatus
+
     Object.assign(booking, safeUpdates)
 
-    if (status !== undefined && status !== booking.status) {
+    if (status !== undefined && status !== previousStatus) {
       const sideEffectResult = applyStatusSideEffects(
         booking,
         status as BookingStatus,
-        booking.status as BookingStatus
+        previousStatus
       )
       if (sideEffectResult.error) {
         res.status(400).json({ message: sideEffectResult.error })
