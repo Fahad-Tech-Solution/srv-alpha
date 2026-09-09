@@ -4,6 +4,7 @@ import { Booking, IBooking } from '../models/Booking.model'
 import { User, IUser } from '../models/User.model'
 import { buildOnboardingInviteEmail } from '../emails/onboardingInvite.template'
 import { notificationService } from './notification.service'
+import { normalizeStairsForStorage } from '../utils/stairsAccess'
 
 type IntegrationPayload = {
   sourceSystem: string
@@ -254,8 +255,8 @@ function toBookingCreateData(payload: IntegrationPayload, customerId: string): P
     eventVersion: payload.eventVersion,
     miles: payload.booking.miles,
     durationRequired: payload.booking.durationRequired,
-    collectionStairs: payload.booking.collectionStairs,
-    deliveryStairs: payload.booking.deliveryStairs,
+    collectionStairs: normalizeStairsForStorage(payload.booking.collectionStairs),
+    deliveryStairs: normalizeStairsForStorage(payload.booking.deliveryStairs),
     helpersLabel: payload.booking.helpersLabel,
     manRequired: payload.booking.manRequired,
     specialInstructions: payload.booking.specialInstructions,

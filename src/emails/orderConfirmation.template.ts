@@ -1,3 +1,5 @@
+import { formatStairsDisplay } from '../utils/stairsAccess'
+
 export type OrderConfirmationEmailInput = {
   customerName: string
   orderCode: string
@@ -88,8 +90,16 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationEmailInput):
   const vehicleLabel = VEHICLE_TYPE_LABELS[input.vehicleType] || input.vehicleType
   const paymentLine = formatPaymentLine(input)
   const subject = `Your Local Van booking is confirmed — ${input.orderCode}`
-  const pickupAccessLine = input.collectionStairs ? `Access: ${input.collectionStairs}` : null
-  const deliveryAccessLine = input.deliveryStairs ? `Access: ${input.deliveryStairs}` : null
+  const pickupAccess = input.collectionStairs
+    ? formatStairsDisplay(input.collectionStairs)
+    : null
+  const deliveryAccess = input.deliveryStairs
+    ? formatStairsDisplay(input.deliveryStairs)
+    : null
+  const pickupAccessLine =
+    pickupAccess && pickupAccess !== '—' ? `Access: ${pickupAccess}` : null
+  const deliveryAccessLine =
+    deliveryAccess && deliveryAccess !== '—' ? `Access: ${deliveryAccess}` : null
   const peopleLine = input.peopleRequired ? `People required: ${input.peopleRequired}` : null
 
   const text = [
@@ -171,7 +181,7 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationEmailInput):
                     ${escapeHtml(input.pickupAddress)}<br />
                     ${escapeHtml(input.pickupCity)}, ${escapeHtml(input.pickupZipCode)}<br />
                     <span style="color:${BRAND.muted};">${escapeHtml(input.pickupDate)} at ${escapeHtml(input.pickupTime)}</span>
-                    ${input.collectionStairs ? `<br /><span style="color:${BRAND.muted};">Access: ${escapeHtml(input.collectionStairs)}</span>` : ''}
+                    ${pickupAccessLine ? `<br /><span style="color:${BRAND.muted};">${escapeHtml(pickupAccessLine)}</span>` : ''}
                   </td>
                 </tr>
                 <tr>
@@ -181,7 +191,7 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationEmailInput):
                   <td style="padding:14px 16px;font-size:14px;line-height:1.5;color:${BRAND.ink};">
                     ${escapeHtml(input.deliveryAddress)}<br />
                     ${escapeHtml(input.deliveryCity)}, ${escapeHtml(input.deliveryZipCode)}
-                    ${input.deliveryStairs ? `<br /><span style="color:${BRAND.muted};">Access: ${escapeHtml(input.deliveryStairs)}</span>` : ''}
+                    ${deliveryAccessLine ? `<br /><span style="color:${BRAND.muted};">${escapeHtml(deliveryAccessLine)}</span>` : ''}
                   </td>
                 </tr>
                 <tr>

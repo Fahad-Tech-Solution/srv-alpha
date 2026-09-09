@@ -9,9 +9,14 @@ import {
   normalizeEmail,
   resolveCustomerAppUrl,
 } from './paidBookingIntegration.service'
+import {
+  AccessType,
+  formatAccessFromAdmin,
+  formatStairsDisplay,
+} from '../utils/stairsAccess'
 
 export type ManualBookingPaymentMethod = 'bank-transfer' | 'cash' | 'card' | 'other'
-export type AccessType = 'lift' | 'stairs' | 'ground'
+export type { AccessType }
 
 export type ManualBookingInput = {
   customer: {
@@ -44,14 +49,7 @@ export type ManualBookingInput = {
 }
 
 export function formatAccessLabel(access?: AccessType, stairsCount?: number): string | undefined {
-  if (!access) return undefined
-  if (access === 'lift') return 'Lift'
-  if (access === 'ground') return 'Ground floor'
-  if (access === 'stairs') {
-    const count = Math.max(1, stairsCount ?? 1)
-    return count === 1 ? '1 flight of stairs' : `${count} flights of stairs`
-  }
-  return undefined
+  return formatAccessFromAdmin(access, stairsCount)
 }
 
 function formatPeopleRequired(men?: number): string | undefined {
@@ -124,8 +122,12 @@ async function sendOrderConfirmationEmail(
       price: booking.finalPrice ?? booking.estimatedPrice,
       paymentStatus: booking.paymentStatus === 'paid' ? 'paid' : 'pending',
       paymentMethod: booking.paymentMethod,
-      collectionStairs: booking.collectionStairs,
-      deliveryStairs: booking.deliveryStairs,
+      collectionStairs: booking.collectionStairs
+        ? formatStairsDisplay(booking.collectionStairs)
+        : undefined,
+      deliveryStairs: booking.deliveryStairs
+        ? formatStairsDisplay(booking.deliveryStairs)
+        : undefined,
       peopleRequired: booking.manRequired,
       customerPortalUrl: resolveCustomerAppUrl(),
       supportEmail: process.env.SMTP_FROM_EMAIL || 'info@local-van.com',
