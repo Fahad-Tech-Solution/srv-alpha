@@ -402,10 +402,26 @@ export const getAllBookings = async (
       query.status = status
     }
     if (search) {
+      const searchTerm = String(search).trim()
+      const matchingCustomers = await User.find({
+        role: 'customer',
+        $or: [
+          { name: { $regex: searchTerm, $options: 'i' } },
+          { email: { $regex: searchTerm, $options: 'i' } },
+        ],
+      })
+        .select('_id')
+        .lean()
+
+      const customerIds = matchingCustomers.map((user) => user._id)
+
       query.$or = [
-        { pickupAddress: { $regex: search, $options: 'i' } },
-        { deliveryAddress: { $regex: search, $options: 'i' } },
-        { orderCode: { $regex: search, $options: 'i' } },
+        { orderCode: { $regex: searchTerm, $options: 'i' } },
+        { contactEmail: { $regex: searchTerm, $options: 'i' } },
+        { contactPhone: { $regex: searchTerm, $options: 'i' } },
+        { pickupAddress: { $regex: searchTerm, $options: 'i' } },
+        { deliveryAddress: { $regex: searchTerm, $options: 'i' } },
+        ...(customerIds.length > 0 ? [{ customer: { $in: customerIds } }] : []),
       ]
     }
 
