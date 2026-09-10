@@ -19,7 +19,7 @@ import {
   approveDriverApplication,
   rejectDriverApplication,
 } from '../services/driverApplication.service'
-import { createManualBooking } from '../services/manualBooking.service'
+import { createManualBooking, sendBookingConfirmationById } from '../services/manualBooking.service'
 
 // Get dashboard statistics
 export const getAdminStats = async (
@@ -488,7 +488,7 @@ export const updateBookingAdmin = async (
       return
     }
 
-    const { status, driver, driverOffers, offeredToDrivers, assignedAt, assignedBy, ...safeUpdates } =
+    const { status, driver, driverOffers, offeredToDrivers, assignedAt, assignedBy, sendConfirmationEmail, ...safeUpdates } =
       updateData
 
     const previousStatus = booking.status as BookingStatus
@@ -513,9 +513,45 @@ export const updateBookingAdmin = async (
     await booking.populate('customer', 'name email phone')
     await booking.populate('driver', 'name email phone')
 
+    let confirmationEmail: 'sent' | 'failed' | 'skipped' = 'skipped'
+    if (sendConfirmationEmail === true) {
+      confirmationEmail = await sendBookingConfirmationById(booking._id.toString())
+    }
+
     res.json({
-      message: 'Booking updated successfully',
+      message:
+        confirmationEmail === 'sent'
+          ? 'Booking updated successfully and confirmation email sent'
+          : confirmationEmail === 'failed'
+            ? 'Booking updated, but confirmation email failed to send'
+            : 'Booking updated successfully',
       booking,
+      emails: { confirmation: confirmationEmail },
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+// Delete booking (admin)
+export const deleteBookingAdmin = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const booking = await Booking.findById(id)
+    if (!booking) {
+      res.status(404).json({ message: 'Booking not found' })
+      return
+    }
+
+    await Booking.findByIdAndDelete(id)
+
+    res.json({
+      message: 'Booking deleted successfully',
+      bookingId: id,
     })
   } catch (error) {
     next(error)

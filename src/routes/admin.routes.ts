@@ -12,6 +12,7 @@ import {
   getAllBookings,
   createBookingAdmin,
   updateBookingAdmin,
+  deleteBookingAdmin,
   assignDriver,
   reclaimBooking,
   getAllDrivers,
@@ -131,6 +132,7 @@ router.get('/drivers', getAllDrivers)
 router.get('/bookings', getAllBookings)
 router.post('/bookings', createBookingValidation, createBookingAdmin)
 router.put('/bookings/:id', updateBookingAdmin)
+router.delete('/bookings/:id', deleteBookingAdmin)
 router.post('/bookings/:id/assign-driver', assignDriver)
 router.post('/bookings/:id/reclaim', reclaimBooking)
 router.post('/bookings/:id/handle-dispute', handleDispute)

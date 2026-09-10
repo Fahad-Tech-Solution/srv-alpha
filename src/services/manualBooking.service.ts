@@ -135,11 +135,12 @@ async function sendOrderConfirmationEmail(
     })
 
     const adminEmail = adminNotifyEmail()
+    const toEmail = booking.contactEmail || customer.email
     const cc =
-      adminEmail.toLowerCase() !== booking.contactEmail.toLowerCase() ? adminEmail : undefined
+      adminEmail.toLowerCase() !== toEmail.toLowerCase() ? adminEmail : undefined
 
     await notificationService.sendEmail(
-      booking.contactEmail,
+      toEmail,
       emailContent.subject,
       emailContent.text,
       emailContent.html,
@@ -151,6 +152,33 @@ async function sendOrderConfirmationEmail(
     console.error('Failed to send order confirmation email:', error)
     return 'failed'
   }
+}
+
+export async function sendBookingConfirmationById(
+  bookingId: string
+): Promise<'sent' | 'failed'> {
+  const booking = await Booking.findById(bookingId).populate('customer', 'name email phone')
+  if (!booking) {
+    throw Object.assign(new Error('Booking not found'), { statusCode: 404 })
+  }
+
+  const customer =
+    booking.customer && typeof booking.customer === 'object' && 'email' in (booking.customer as object)
+      ? (booking.customer as unknown as IUser)
+      : null
+
+  if (!customer && !booking.contactEmail) {
+    throw Object.assign(new Error('Booking has no customer email'), { statusCode: 400 })
+  }
+
+  if (customer) {
+    return sendOrderConfirmationEmail(booking, customer)
+  }
+
+  return sendOrderConfirmationEmail(booking, {
+    name: booking.contactEmail.split('@')[0],
+    email: booking.contactEmail,
+  } as IUser)
 }
 
 function toManualBookingData(
