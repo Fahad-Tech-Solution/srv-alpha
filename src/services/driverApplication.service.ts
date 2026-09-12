@@ -80,7 +80,8 @@ export async function sendDriverApprovedInvite(user: IUser): Promise<'sent' | 'f
       user.email,
       emailContent.subject,
       emailContent.text,
-      emailContent.html
+      emailContent.html,
+      adminNotifyEmail()
     )
 
     return 'sent'
@@ -190,7 +191,32 @@ export async function approveDriverApplication(userId: string): Promise<{
 
   user.isActive = true
   user.applicationStatus = 'approved'
+  user.passwordSetupPending = true
   user.applicationReviewedAt = new Date()
+  await user.save()
+
+  const inviteStatus = await sendDriverApprovedInvite(user)
+  return { inviteStatus }
+}
+
+export async function resendDriverApprovalInvite(userId: string): Promise<{
+  inviteStatus: 'sent' | 'failed'
+}> {
+  const user = await User.findById(userId).select('+firstAccessToken +firstAccessExpires')
+  if (!user) {
+    throw Object.assign(new Error('User not found'), { statusCode: 404 })
+  }
+  if (user.role !== 'driver' || user.applicationStatus !== 'approved') {
+    throw Object.assign(new Error('User is not an approved driver'), { statusCode: 400 })
+  }
+  if (!user.passwordSetupPending && !user.firstAccessToken) {
+    throw Object.assign(
+      new Error('Driver has already completed password setup'),
+      { statusCode: 400 }
+    )
+  }
+
+  user.passwordSetupPending = true
   await user.save()
 
   const inviteStatus = await sendDriverApprovedInvite(user)
