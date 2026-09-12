@@ -18,6 +18,8 @@ import { resendOnboardingInviteByEmail, sendOnboardingInvite, createRandomBootst
 import {
   approveDriverApplication,
   rejectDriverApplication,
+  resendDriverApprovalInvite,
+  sendDriverApprovedInvite,
 } from '../services/driverApplication.service'
 import { createManualBooking, sendBookingConfirmationById } from '../services/manualBooking.service'
 
@@ -166,6 +168,7 @@ export const getAllUsers = async (
 
     const users = await User.find(query)
       .select('-password +firstAccessToken')
+      .select('-password +firstAccessToken')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit))
@@ -173,6 +176,16 @@ export const getAllUsers = async (
     const total = await User.countDocuments(query)
 
     res.json({
+      users: users.map((user) => {
+        const obj = user.toObject() as unknown as Record<string, unknown>
+        const awaitingSetup =
+          Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
+        delete obj.firstAccessToken
+        return {
+          ...obj,
+          passwordSetupPending: awaitingSetup,
+        }
+      }),
       users: users.map((user) => {
         const obj = user.toObject() as unknown as Record<string, unknown>
         const awaitingSetup =
@@ -300,11 +313,15 @@ export const createUser = async (
       isActive: true,
       applicationStatus: role === 'driver' ? 'approved' : undefined,
       applicationReviewedAt: role === 'driver' ? new Date() : undefined,
+      passwordSetupPending: role === 'driver' && Boolean(sendInvite),
     })
 
     let inviteStatus: 'not_required' | 'sent' | 'failed' = 'not_required'
     if (sendInvite) {
-      inviteStatus = await sendOnboardingInvite(user)
+      inviteStatus =
+        role === 'driver'
+          ? await sendDriverApprovedInvite(user)
+          : await sendOnboardingInvite(user)
     }
 
     const userResponse = user.toObject()
@@ -358,6 +375,30 @@ export const rejectDriverApplicationAdmin = async (
         result.emailStatus === 'sent'
           ? 'Application rejected and applicant notified'
           : 'Application rejected but notification email failed',
+      ...result,
+    })
+  } catch (error: any) {
+    if (error?.statusCode) {
+      res.status(error.statusCode).json({ message: error.message })
+      return
+    }
+    next(error)
+  }
+}
+
+export const resendDriverApprovalInviteAdmin = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const result = await resendDriverApprovalInvite(id)
+    res.json({
+      message:
+        result.inviteStatus === 'sent'
+          ? 'Approval setup email resent'
+          : 'Approval setup email failed to send',
       ...result,
     })
   } catch (error: any) {
@@ -719,12 +760,13 @@ export const getAllDrivers = async (
     const query: any = { role: 'driver' }
     if (search) {
       query.$or = [
-        { email: { $regex: search, $options: 'i' } },
-        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: String(search), $options: 'i' } },
+        { name: { $regex: String(search), $options: 'i' } },
       ]
     }
 
     const drivers = await User.find(query)
+      .select('-password +firstAccessToken')
       .select('-password +firstAccessToken')
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -749,7 +791,14 @@ export const getAllDrivers = async (
           Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
         delete obj.firstAccessToken
 
+        const obj = driver.toObject() as unknown as Record<string, unknown>
+        const awaitingSetup =
+          Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
+        delete obj.firstAccessToken
+
         return {
+          ...obj,
+          passwordSetupPending: awaitingSetup,
           ...obj,
           passwordSetupPending: awaitingSetup,
           stats: {
@@ -767,6 +816,7 @@ export const getAllDrivers = async (
         page: Number(page),
         limit: Number(limit),
         total,
+        pages: Math.ceil(total / Number(limit)) || 1,
         pages: Math.ceil(total / Number(limit)) || 1,
       },
     })

@@ -345,6 +345,7 @@ export const completeFirstAccess = async (
     user.password = password
     user.firstAccessToken = undefined
     user.firstAccessExpires = undefined
+    user.passwordSetupPending = false
     await user.save()
 
     const authToken = generateToken({

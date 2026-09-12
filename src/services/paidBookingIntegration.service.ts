@@ -215,13 +215,20 @@ export async function resendOnboardingInviteByEmail(
   email: string
 ): Promise<{ inviteStatus: 'sent' | 'failed'; customerId: string }> {
   const normalizedEmail = normalizeEmail(email)
-  const user = await User.findOne({ email: normalizedEmail })
+  const user = await User.findOne({ email: normalizedEmail }).select(
+    '+firstAccessToken +firstAccessExpires'
+  )
   if (!user) {
     throw Object.assign(new Error('Customer not found'), { statusCode: 404 })
   }
   if (user.role !== 'customer') {
     throw Object.assign(new Error('User is not a customer'), { statusCode: 400 })
   }
+
+  // Customers are active immediately — password setup is optional for access
+  user.isActive = true
+  user.passwordSetupPending = false
+  await user.save()
 
   const inviteStatus = await sendOnboardingInvite(user)
   return { inviteStatus, customerId: user._id.toString() }
