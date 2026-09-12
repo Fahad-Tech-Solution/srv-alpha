@@ -9,6 +9,7 @@ import {
   deleteUser,
   approveDriverApplicationAdmin,
   rejectDriverApplicationAdmin,
+  resendDriverApprovalInviteAdmin,
   getAllBookings,
   createBookingAdmin,
   updateBookingAdmin,
@@ -123,6 +124,7 @@ router.put('/users/:id', updateUser)
 router.delete('/users/:id', deleteUser)
 router.post('/users/:id/approve-application', approveDriverApplicationAdmin)
 router.post('/users/:id/reject-application', rejectDriverApplicationAdmin)
+router.post('/users/:id/resend-approval-invite', resendDriverApprovalInviteAdmin)
 router.post('/users/:id/resend-invite', resendCustomerInvite)
 
 // Driver management

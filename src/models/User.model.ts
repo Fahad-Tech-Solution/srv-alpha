@@ -73,6 +73,8 @@ export interface IUser extends Document {
   applicationSubmittedAt?: Date
   applicationReviewedAt?: Date
   applicationReviewNote?: string
+  /** True after approval until the driver completes first-access password setup */
+  passwordSetupPending?: boolean
   introductionVideoUrl?: string
   createdAt: Date
   updatedAt: Date
@@ -129,6 +131,10 @@ const userSchema = new Schema<IUser>(
     applicationReviewNote: {
       type: String,
       trim: true,
+    },
+    passwordSetupPending: {
+      type: Boolean,
+      default: false,
     },
     introductionVideoUrl: {
       type: String,

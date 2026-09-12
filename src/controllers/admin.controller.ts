@@ -18,6 +18,8 @@ import { resendOnboardingInviteByEmail, sendOnboardingInvite, createRandomBootst
 import {
   approveDriverApplication,
   rejectDriverApplication,
+  resendDriverApprovalInvite,
+  sendDriverApprovedInvite,
 } from '../services/driverApplication.service'
 import { createManualBooking, sendBookingConfirmationById } from '../services/manualBooking.service'
 
@@ -165,7 +167,7 @@ export const getAllUsers = async (
     }
 
     const users = await User.find(query)
-      .select('-password')
+      .select('-password +firstAccessToken')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit))
@@ -173,7 +175,16 @@ export const getAllUsers = async (
     const total = await User.countDocuments(query)
 
     res.json({
-      users,
+      users: users.map((user) => {
+        const obj = user.toObject() as Record<string, unknown>
+        const awaitingSetup =
+          Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
+        delete obj.firstAccessToken
+        return {
+          ...obj,
+          passwordSetupPending: awaitingSetup,
+        }
+      }),
       pagination: {
         page: Number(page),
         limit: Number(limit),
@@ -291,11 +302,15 @@ export const createUser = async (
       isActive: true,
       applicationStatus: role === 'driver' ? 'approved' : undefined,
       applicationReviewedAt: role === 'driver' ? new Date() : undefined,
+      passwordSetupPending: role === 'driver' && Boolean(sendInvite),
     })
 
     let inviteStatus: 'not_required' | 'sent' | 'failed' = 'not_required'
     if (sendInvite) {
-      inviteStatus = await sendOnboardingInvite(user)
+      inviteStatus =
+        role === 'driver'
+          ? await sendDriverApprovedInvite(user)
+          : await sendOnboardingInvite(user)
     }
 
     const userResponse = user.toObject()
@@ -349,6 +364,30 @@ export const rejectDriverApplicationAdmin = async (
         result.emailStatus === 'sent'
           ? 'Application rejected and applicant notified'
           : 'Application rejected but notification email failed',
+      ...result,
+    })
+  } catch (error: any) {
+    if (error?.statusCode) {
+      res.status(error.statusCode).json({ message: error.message })
+      return
+    }
+    next(error)
+  }
+}
+
+export const resendDriverApprovalInviteAdmin = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const result = await resendDriverApprovalInvite(id)
+    res.json({
+      message:
+        result.inviteStatus === 'sent'
+          ? 'Approval setup email resent'
+          : 'Approval setup email failed to send',
       ...result,
     })
   } catch (error: any) {
@@ -706,16 +745,29 @@ export const getAllDrivers = async (
     const { page = 1, limit = 10, search } = req.query
     const skip = (Number(page) - 1) * Number(limit)
 
-    const query: any = { role: 'driver', isActive: true }
+    // Prefer activeStatus; keep isActive as a backward-compatible alias
+    const rawStatus = req.query.activeStatus ?? req.query.isActive
+    const statusValue = Array.isArray(rawStatus) ? rawStatus[0] : rawStatus
+    const activeStatus = String(statusValue ?? 'all')
+      .trim()
+      .toLowerCase()
+
+    const query: Record<string, unknown> = { role: 'driver' }
+    if (activeStatus === 'true' || activeStatus === 'active') {
+      query.isActive = true
+    } else if (activeStatus === 'false' || activeStatus === 'inactive') {
+      query.isActive = false
+    }
+
     if (search) {
       query.$or = [
-        { email: { $regex: search, $options: 'i' } },
-        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: String(search), $options: 'i' } },
+        { name: { $regex: String(search), $options: 'i' } },
       ]
     }
 
     const drivers = await User.find(query)
-      .select('-password')
+      .select('-password +firstAccessToken')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit))
@@ -734,8 +786,14 @@ export const getAllDrivers = async (
           }),
         ])
 
+        const obj = driver.toObject() as Record<string, unknown>
+        const awaitingSetup =
+          Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
+        delete obj.firstAccessToken
+
         return {
-          ...driver.toObject(),
+          ...obj,
+          passwordSetupPending: awaitingSetup,
           stats: {
             totalJobs,
             completedJobs,
@@ -751,8 +809,9 @@ export const getAllDrivers = async (
         page: Number(page),
         limit: Number(limit),
         total,
-        pages: Math.ceil(total / Number(limit)),
+        pages: Math.ceil(total / Number(limit)) || 1,
       },
+      filter: activeStatus,
     })
   } catch (error) {
     next(error)
