@@ -165,7 +165,7 @@ export const getAllUsers = async (
     }
 
     const users = await User.find(query)
-      .select('-password')
+      .select('-password +firstAccessToken')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit))
@@ -173,7 +173,16 @@ export const getAllUsers = async (
     const total = await User.countDocuments(query)
 
     res.json({
-      users,
+      users: users.map((user) => {
+        const obj = user.toObject() as unknown as Record<string, unknown>
+        const awaitingSetup =
+          Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
+        delete obj.firstAccessToken
+        return {
+          ...obj,
+          passwordSetupPending: awaitingSetup,
+        }
+      }),
       pagination: {
         page: Number(page),
         limit: Number(limit),
@@ -706,7 +715,8 @@ export const getAllDrivers = async (
     const { page = 1, limit = 10, search } = req.query
     const skip = (Number(page) - 1) * Number(limit)
 
-    const query: any = { role: 'driver', isActive: true }
+    // Show all drivers (active and inactive)
+    const query: any = { role: 'driver' }
     if (search) {
       query.$or = [
         { email: { $regex: search, $options: 'i' } },
@@ -715,7 +725,7 @@ export const getAllDrivers = async (
     }
 
     const drivers = await User.find(query)
-      .select('-password')
+      .select('-password +firstAccessToken')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit))
@@ -734,8 +744,14 @@ export const getAllDrivers = async (
           }),
         ])
 
+        const obj = driver.toObject() as unknown as Record<string, unknown>
+        const awaitingSetup =
+          Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
+        delete obj.firstAccessToken
+
         return {
-          ...driver.toObject(),
+          ...obj,
+          passwordSetupPending: awaitingSetup,
           stats: {
             totalJobs,
             completedJobs,
@@ -751,7 +767,7 @@ export const getAllDrivers = async (
         page: Number(page),
         limit: Number(limit),
         total,
-        pages: Math.ceil(total / Number(limit)),
+        pages: Math.ceil(total / Number(limit)) || 1,
       },
     })
   } catch (error) {
