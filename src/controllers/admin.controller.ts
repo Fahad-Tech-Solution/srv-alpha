@@ -176,7 +176,7 @@ export const getAllUsers = async (
 
     res.json({
       users: users.map((user) => {
-        const obj = user.toObject() as Record<string, unknown>
+        const obj = user.toObject() as unknown as Record<string, unknown>
         const awaitingSetup =
           Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
         delete obj.firstAccessToken
@@ -786,7 +786,7 @@ export const getAllDrivers = async (
           }),
         ])
 
-        const obj = driver.toObject() as Record<string, unknown>
+        const obj = driver.toObject() as unknown as Record<string, unknown>
         const awaitingSetup =
           Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
         delete obj.firstAccessToken
