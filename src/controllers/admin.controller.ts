@@ -745,20 +745,7 @@ export const getAllDrivers = async (
     const { page = 1, limit = 10, search } = req.query
     const skip = (Number(page) - 1) * Number(limit)
 
-    // Prefer activeStatus; keep isActive as a backward-compatible alias
-    const rawStatus = req.query.activeStatus ?? req.query.isActive
-    const statusValue = Array.isArray(rawStatus) ? rawStatus[0] : rawStatus
-    const activeStatus = String(statusValue ?? 'all')
-      .trim()
-      .toLowerCase()
-
     const query: Record<string, unknown> = { role: 'driver' }
-    if (activeStatus === 'true' || activeStatus === 'active') {
-      query.isActive = true
-    } else if (activeStatus === 'false' || activeStatus === 'inactive') {
-      query.isActive = false
-    }
-
     if (search) {
       query.$or = [
         { email: { $regex: String(search), $options: 'i' } },
@@ -811,7 +798,6 @@ export const getAllDrivers = async (
         total,
         pages: Math.ceil(total / Number(limit)) || 1,
       },
-      filter: activeStatus,
     })
   } catch (error) {
     next(error)
