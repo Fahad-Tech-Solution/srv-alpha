@@ -168,7 +168,6 @@ export const getAllUsers = async (
 
     const users = await User.find(query)
       .select('-password +firstAccessToken')
-      .select('-password +firstAccessToken')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit))
@@ -176,16 +175,6 @@ export const getAllUsers = async (
     const total = await User.countDocuments(query)
 
     res.json({
-      users: users.map((user) => {
-        const obj = user.toObject() as unknown as Record<string, unknown>
-        const awaitingSetup =
-          Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
-        delete obj.firstAccessToken
-        return {
-          ...obj,
-          passwordSetupPending: awaitingSetup,
-        }
-      }),
       users: users.map((user) => {
         const obj = user.toObject() as unknown as Record<string, unknown>
         const awaitingSetup =
@@ -767,7 +756,6 @@ export const getAllDrivers = async (
 
     const drivers = await User.find(query)
       .select('-password +firstAccessToken')
-      .select('-password +firstAccessToken')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit))
@@ -791,14 +779,7 @@ export const getAllDrivers = async (
           Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
         delete obj.firstAccessToken
 
-        const obj = driver.toObject() as unknown as Record<string, unknown>
-        const awaitingSetup =
-          Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
-        delete obj.firstAccessToken
-
         return {
-          ...obj,
-          passwordSetupPending: awaitingSetup,
           ...obj,
           passwordSetupPending: awaitingSetup,
           stats: {
@@ -816,7 +797,6 @@ export const getAllDrivers = async (
         page: Number(page),
         limit: Number(limit),
         total,
-        pages: Math.ceil(total / Number(limit)) || 1,
         pages: Math.ceil(total / Number(limit)) || 1,
       },
     })
