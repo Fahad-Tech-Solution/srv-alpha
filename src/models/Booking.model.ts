@@ -310,7 +310,17 @@ bookingSchema.index({ customer: 1, createdAt: -1 })
 bookingSchema.index({ driver: 1, status: 1 })
 bookingSchema.index({ status: 1 })
 bookingSchema.index({ orderCode: 1 }, { sparse: true, unique: true })
-bookingSchema.index({ paymentReference: 1 }, { sparse: true, unique: true })
+// Partial unique index: multiple bookings may omit paymentReference.
+// A sparse unique index still indexes null and only allows one null value.
+bookingSchema.index(
+  { paymentReference: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      paymentReference: { $type: 'string', $gt: '' },
+    },
+  }
+)
 bookingSchema.index({ idempotencyKey: 1 }, { sparse: true, unique: true })
 
 export const Booking = mongoose.model<IBooking>('Booking', bookingSchema)

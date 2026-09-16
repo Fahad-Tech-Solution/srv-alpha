@@ -174,17 +174,50 @@ export const getAllUsers = async (
 
     const total = await User.countDocuments(query)
 
-    res.json({
-      users: users.map((user) => {
+    const usersWithDetails = await Promise.all(
+      users.map(async (user) => {
         const obj = user.toObject() as unknown as Record<string, unknown>
         const awaitingSetup =
           Boolean(obj.passwordSetupPending) || Boolean(obj.firstAccessToken)
         delete obj.firstAccessToken
-        return {
+
+        const base = {
           ...obj,
           passwordSetupPending: awaitingSetup,
         }
-      }),
+
+        if (user.role !== 'customer') {
+          return base
+        }
+
+        const [totalOrders, pendingOrders, inProgressOrders, completedOrders] =
+          await Promise.all([
+            Booking.countDocuments({ customer: user._id }),
+            Booking.countDocuments({
+              customer: user._id,
+              status: { $in: ['pending', 'offered'] },
+            }),
+            Booking.countDocuments({
+              customer: user._id,
+              status: { $in: ['confirmed', 'in-progress'] },
+            }),
+            Booking.countDocuments({ customer: user._id, status: 'completed' }),
+          ])
+
+        return {
+          ...base,
+          bookingStats: {
+            total: totalOrders,
+            pending: pendingOrders,
+            inProgress: inProgressOrders,
+            completed: completedOrders,
+          },
+        }
+      })
+    )
+
+    res.json({
+      users: usersWithDetails,
       pagination: {
         page: Number(page),
         limit: Number(limit),
@@ -532,7 +565,29 @@ export const updateBookingAdmin = async (
 
     const previousStatus = booking.status as BookingStatus
 
+    // Avoid writing null paymentReference — unique indexes treat null as a real key
+    if (
+      safeUpdates.paymentReference === null ||
+      safeUpdates.paymentReference === undefined ||
+      String(safeUpdates.paymentReference || '').trim() === ''
+    ) {
+      delete safeUpdates.paymentReference
+      booking.$unset('paymentReference')
+    }
+
+    if (safeUpdates.paymentMethod === null || safeUpdates.paymentMethod === '') {
+      delete safeUpdates.paymentMethod
+      booking.$unset('paymentMethod')
+    }
+
     Object.assign(booking, safeUpdates)
+
+    if (
+      booking.paymentReference == null ||
+      String(booking.paymentReference || '').trim() === ''
+    ) {
+      booking.$unset('paymentReference')
+    }
 
     if (status !== undefined && status !== previousStatus) {
       const sideEffectResult = applyStatusSideEffects(
