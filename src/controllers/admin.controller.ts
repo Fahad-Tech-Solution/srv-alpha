@@ -572,12 +572,12 @@ export const updateBookingAdmin = async (
       String(safeUpdates.paymentReference || '').trim() === ''
     ) {
       delete safeUpdates.paymentReference
-      booking.$unset('paymentReference')
+      booking.set('paymentReference', undefined)
     }
 
     if (safeUpdates.paymentMethod === null || safeUpdates.paymentMethod === '') {
       delete safeUpdates.paymentMethod
-      booking.$unset('paymentMethod')
+      booking.set('paymentMethod', undefined)
     }
 
     Object.assign(booking, safeUpdates)
@@ -586,7 +586,7 @@ export const updateBookingAdmin = async (
       booking.paymentReference == null ||
       String(booking.paymentReference || '').trim() === ''
     ) {
-      booking.$unset('paymentReference')
+      booking.set('paymentReference', undefined)
     }
 
     if (status !== undefined && status !== previousStatus) {
