@@ -22,6 +22,14 @@ import {
   sendDriverApprovedInvite,
 } from '../services/driverApplication.service'
 import { createManualBooking, sendBookingConfirmationById } from '../services/manualBooking.service'
+import {
+  deriveVehicleTypeFromVanCounts,
+  mapStopsForStorage,
+  normalizeServiceExtras,
+  normalizeVanCounts,
+  totalVans,
+  validateStops,
+} from '../utils/manualBookingExtras'
 
 // Get dashboard statistics
 export const getAdminStats = async (
@@ -578,6 +586,51 @@ export const updateBookingAdmin = async (
     if (safeUpdates.paymentMethod === null || safeUpdates.paymentMethod === '') {
       delete safeUpdates.paymentMethod
       booking.set('paymentMethod', undefined)
+    }
+
+    if (safeUpdates.vanCounts !== undefined) {
+      const vanCounts = normalizeVanCounts(safeUpdates.vanCounts)
+      const vansTotal = totalVans(vanCounts)
+      if (vansTotal < 1) {
+        res.status(400).json({ message: 'At least one van is required' })
+        return
+      }
+      const helpers = Math.max(0, Math.floor(Number(safeUpdates.helpers ?? booking.helpers) || 0))
+      const drivers = vansTotal
+      safeUpdates.vanCounts = vanCounts
+      safeUpdates.vans = vansTotal
+      safeUpdates.drivers = drivers
+      safeUpdates.helpers = helpers
+      safeUpdates.men = drivers + helpers
+      safeUpdates.manRequired =
+        drivers + helpers === 1 ? '1 person' : `${drivers + helpers} people`
+      safeUpdates.vehicleType = deriveVehicleTypeFromVanCounts(vanCounts)
+    } else if (safeUpdates.helpers !== undefined) {
+      const helpers = Math.max(0, Math.floor(Number(safeUpdates.helpers) || 0))
+      const drivers = Number(booking.drivers) || Number(booking.vans) || 1
+      safeUpdates.helpers = helpers
+      safeUpdates.drivers = drivers
+      safeUpdates.men = drivers + helpers
+      safeUpdates.manRequired =
+        drivers + helpers === 1 ? '1 person' : `${drivers + helpers} people`
+    }
+
+    if (safeUpdates.stops !== undefined) {
+      const stopsError = validateStops(safeUpdates.stops)
+      if (stopsError) {
+        res.status(400).json({ message: stopsError })
+        return
+      }
+      safeUpdates.stops = mapStopsForStorage(safeUpdates.stops)
+    }
+
+    if (safeUpdates.serviceExtras !== undefined) {
+      const extras = normalizeServiceExtras(safeUpdates.serviceExtras)
+      if (extras.packingBoxes % 5 !== 0) {
+        res.status(400).json({ message: 'Packing boxes must be in steps of 5' })
+        return
+      }
+      safeUpdates.serviceExtras = extras
     }
 
     Object.assign(booking, safeUpdates)

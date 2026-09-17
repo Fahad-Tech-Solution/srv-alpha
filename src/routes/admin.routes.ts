@@ -74,7 +74,22 @@ const createBookingValidation = [
   body('deliveryCity').isString().trim().notEmpty(),
   body('deliveryZipCode').isString().trim().notEmpty(),
   body('serviceType').isIn(['local', 'long-distance', 'interstate']),
-  body('vehicleType').isIn(['small', 'medium', 'large', 'luton', 'multi-van']),
+  body('vehicleType').optional().isIn(['small', 'medium', 'large', 'luton', 'multi-van']),
+  body('vanCounts.small').optional().isInt({ min: 0, max: 20 }),
+  body('vanCounts.medium').optional().isInt({ min: 0, max: 20 }),
+  body('vanCounts.large').optional().isInt({ min: 0, max: 20 }),
+  body('vanCounts.luton').optional().isInt({ min: 0, max: 20 }),
+  body('helpers').optional().isInt({ min: 0, max: 20 }),
+  body('drivers').optional().isInt({ min: 0, max: 20 }),
+  body('stops').optional().isArray({ max: 3 }),
+  body('stops.*.address').optional().isString().trim().notEmpty(),
+  body('stops.*.city').optional().isString().trim().notEmpty(),
+  body('stops.*.zipCode').optional().isString().trim().notEmpty(),
+  body('stops.*.access').optional().isIn(['lift', 'stairs', 'ground']),
+  body('stops.*.stairsCount').optional().isInt({ min: 1, max: 50 }),
+  body('serviceExtras.dismantleItems').optional().isInt({ min: 0, max: 100 }),
+  body('serviceExtras.assemblyItems').optional().isInt({ min: 0, max: 100 }),
+  body('serviceExtras.packingBoxes').optional().isInt({ min: 0, max: 500 }),
   body('price').isFloat({ min: 0 }),
   body('paymentStatus').isIn(['paid', 'pending']),
   body('paymentMethod')
@@ -88,7 +103,7 @@ const createBookingValidation = [
   body('pickupStairsCount').optional().isInt({ min: 1, max: 50 }),
   body('deliveryAccess').optional().isIn(['lift', 'stairs', 'ground']),
   body('deliveryStairsCount').optional().isInt({ min: 1, max: 50 }),
-  body('men').isInt({ min: 1, max: 6 }),
+  body('men').optional().isInt({ min: 1, max: 40 }),
   body().custom((value, { req }) => {
     if (req.body.paymentStatus === 'paid' && !req.body.paymentMethod) {
       throw new Error('Payment method is required when payment status is paid')
@@ -98,6 +113,30 @@ const createBookingValidation = [
     }
     if (req.body.deliveryAccess === 'stairs' && !req.body.deliveryStairsCount) {
       throw new Error('Delivery stairs count is required when delivery access is stairs')
+    }
+    const vc = req.body.vanCounts || {}
+    const vanTotal =
+      (Number(vc.small) || 0) +
+      (Number(vc.medium) || 0) +
+      (Number(vc.large) || 0) +
+      (Number(vc.luton) || 0)
+    if (vanTotal < 1 && !req.body.vehicleType) {
+      throw new Error('At least one van is required')
+    }
+    if (
+      req.body.serviceExtras?.packingBoxes != null &&
+      Number(req.body.serviceExtras.packingBoxes) % 5 !== 0
+    ) {
+      throw new Error('Packing boxes must be in steps of 5')
+    }
+    const stops = req.body.stops
+    if (Array.isArray(stops)) {
+      if (stops.length > 3) throw new Error('A maximum of 3 intermediate stops is allowed')
+      stops.forEach((stop: any, index: number) => {
+        if (stop?.access === 'stairs' && !stop?.stairsCount) {
+          throw new Error(`Stop ${index + 1} stairs count is required when access is stairs`)
+        }
+      })
     }
     return true
   }),

@@ -14,6 +14,19 @@ import {
   formatAccessFromAdmin,
   formatStairsDisplay,
 } from '../utils/stairsAccess'
+import {
+  BookingStopInput,
+  ServiceExtrasInput,
+  VanCounts,
+  deriveVehicleTypeFromVanCounts,
+  formatServiceExtrasLabel,
+  formatVanCountsLabel,
+  mapStopsForStorage,
+  normalizeServiceExtras,
+  normalizeVanCounts,
+  totalVans,
+  validateStops,
+} from '../utils/manualBookingExtras'
 
 export type ManualBookingPaymentMethod = 'bank-transfer' | 'cash' | 'card' | 'other'
 export type { AccessType }
@@ -33,7 +46,13 @@ export type ManualBookingInput = {
   deliveryCity: string
   deliveryZipCode: string
   serviceType: 'local' | 'long-distance' | 'interstate'
-  vehicleType: 'small' | 'medium' | 'large' | 'luton' | 'multi-van'
+  /** @deprecated Prefer vanCounts; kept for backward compatibility */
+  vehicleType?: 'small' | 'medium' | 'large' | 'luton' | 'multi-van'
+  vanCounts?: Partial<VanCounts>
+  drivers?: number
+  helpers?: number
+  stops?: BookingStopInput[]
+  serviceExtras?: ServiceExtrasInput
   price: number
   paymentStatus: 'paid' | 'pending'
   paymentMethod?: ManualBookingPaymentMethod
@@ -45,6 +64,7 @@ export type ManualBookingInput = {
   pickupStairsCount?: number
   deliveryAccess?: AccessType
   deliveryStairsCount?: number
+  /** @deprecated Prefer drivers + helpers */
   men?: number
 }
 
@@ -101,11 +121,48 @@ async function generateUniqueOrderCode(): Promise<string> {
   throw Object.assign(new Error('Failed to generate unique order code'), { statusCode: 500 })
 }
 
+function resolvePeopleAndVans(input: ManualBookingInput) {
+  const vanCounts = normalizeVanCounts(input.vanCounts)
+  let vansTotal = totalVans(vanCounts)
+
+  // Legacy single vehicleType fallback when vanCounts omitted
+  if (vansTotal === 0 && input.vehicleType && input.vehicleType !== 'multi-van') {
+    vanCounts[input.vehicleType] = 1
+    vansTotal = 1
+  }
+
+  const drivers = vansTotal
+  const helpers = Math.max(0, Math.floor(Number(input.helpers) || 0))
+  const men = drivers + helpers
+
+  return {
+    vanCounts,
+    vansTotal,
+    drivers,
+    helpers,
+    men,
+    vehicleType: vansTotal > 0 ? deriveVehicleTypeFromVanCounts(vanCounts) : input.vehicleType || 'multi-van',
+  }
+}
+
 async function sendOrderConfirmationEmail(
   booking: IBooking,
   customer: IUser
 ): Promise<'sent' | 'failed'> {
   try {
+    const vanLabel = booking.vanCounts
+      ? formatVanCountsLabel(booking.vanCounts)
+      : undefined
+    const peopleParts: string[] = []
+    if (booking.drivers != null) peopleParts.push(`${booking.drivers} driver${booking.drivers === 1 ? '' : 's'}`)
+    if (booking.helpers != null && booking.helpers > 0) {
+      peopleParts.push(`${booking.helpers} helper${booking.helpers === 1 ? '' : 's'}`)
+    }
+    const peopleRequired =
+      peopleParts.length > 0
+        ? peopleParts.join(' + ')
+        : booking.manRequired
+
     const emailContent = buildOrderConfirmationEmail({
       customerName: customer.name,
       orderCode: booking.orderCode || '',
@@ -119,6 +176,7 @@ async function sendOrderConfirmationEmail(
       deliveryZipCode: booking.deliveryZipCode,
       serviceType: booking.serviceType,
       vehicleType: booking.vehicleType,
+      vanCountsLabel: vanLabel && vanLabel !== '—' ? vanLabel : undefined,
       price: booking.finalPrice ?? booking.estimatedPrice,
       paymentStatus: booking.paymentStatus === 'paid' ? 'paid' : 'pending',
       paymentMethod: booking.paymentMethod,
@@ -128,7 +186,18 @@ async function sendOrderConfirmationEmail(
       deliveryStairs: booking.deliveryStairs
         ? formatStairsDisplay(booking.deliveryStairs)
         : undefined,
-      peopleRequired: booking.manRequired,
+      peopleRequired,
+      drivers: booking.drivers,
+      helpers: booking.helpers,
+      stops: (booking.stops || []).map((stop) => ({
+        address: stop.address,
+        city: stop.city,
+        zipCode: stop.zipCode,
+        accessLabel: stop.accessLabel
+          ? formatStairsDisplay(stop.accessLabel)
+          : undefined,
+      })),
+      serviceExtrasLabel: formatServiceExtrasLabel(booking.serviceExtras),
       customerPortalUrl: resolveCustomerAppUrl(),
       supportEmail: process.env.SMTP_FROM_EMAIL || 'info@local-van.com',
       websiteUrl: 'https://local-van.com',
@@ -189,6 +258,10 @@ function toManualBookingData(
 ): Partial<IBooking> {
   const isPaid = input.paymentStatus === 'paid'
   const normalizedEmail = normalizeEmail(input.customer.email)
+  const { vanCounts, vansTotal, drivers, helpers, men, vehicleType } =
+    resolvePeopleAndVans(input)
+  const serviceExtras = normalizeServiceExtras(input.serviceExtras)
+  const stops = mapStopsForStorage(input.stops)
 
   return {
     customer: new mongoose.Types.ObjectId(customerId),
@@ -204,7 +277,13 @@ function toManualBookingData(
     deliveryCity: input.deliveryCity,
     deliveryZipCode: input.deliveryZipCode,
     serviceType: input.serviceType,
-    vehicleType: input.vehicleType,
+    vehicleType,
+    vanCounts,
+    vans: vansTotal,
+    drivers,
+    helpers,
+    stops,
+    serviceExtras,
     estimatedPrice: input.price,
     finalPrice: input.price,
     paymentStatus: input.paymentStatus,
@@ -217,8 +296,8 @@ function toManualBookingData(
     specialInstructions: input.specialInstructions,
     collectionStairs: formatAccessLabel(input.pickupAccess, input.pickupStairsCount),
     deliveryStairs: formatAccessLabel(input.deliveryAccess, input.deliveryStairsCount),
-    men: input.men,
-    manRequired: formatPeopleRequired(input.men),
+    men,
+    manRequired: formatPeopleRequired(men),
     items: [],
   }
 }
@@ -230,10 +309,25 @@ export async function createManualBooking(input: ManualBookingInput): Promise<Ma
     })
   }
 
-  if (!input.men || input.men < 1) {
-    throw Object.assign(new Error('Number of people required must be at least 1'), {
-      statusCode: 400,
-    })
+  const { vansTotal, drivers, helpers, men } = resolvePeopleAndVans(input)
+  if (vansTotal < 1) {
+    throw Object.assign(new Error('At least one van is required'), { statusCode: 400 })
+  }
+  if (drivers < 1 || men < 1) {
+    throw Object.assign(new Error('Drivers must equal the number of vans'), { statusCode: 400 })
+  }
+  if (helpers < 0) {
+    throw Object.assign(new Error('Helpers cannot be negative'), { statusCode: 400 })
+  }
+
+  const extras = normalizeServiceExtras(input.serviceExtras)
+  if (extras.packingBoxes % 5 !== 0) {
+    throw Object.assign(new Error('Packing boxes must be in steps of 5'), { statusCode: 400 })
+  }
+
+  const stopsError = validateStops(input.stops)
+  if (stopsError) {
+    throw Object.assign(new Error(stopsError), { statusCode: 400 })
   }
 
   if (input.pickupAccess === 'stairs' && (!input.pickupStairsCount || input.pickupStairsCount < 1)) {

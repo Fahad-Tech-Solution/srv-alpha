@@ -22,6 +22,27 @@ export interface IBooking extends Document {
   // Service details
   serviceType: 'local' | 'long-distance' | 'interstate'
   vehicleType: 'small' | 'medium' | 'large' | 'luton' | 'multi-van' | 'small-van' | 'medium-van' | 'large-van' | 'truck'
+  vanCounts?: {
+    small: number
+    medium: number
+    large: number
+    luton: number
+  }
+  drivers?: number
+  helpers?: number
+  stops?: {
+    address: string
+    city: string
+    zipCode: string
+    access?: 'lift' | 'stairs' | 'ground'
+    stairsCount?: number
+    accessLabel?: string
+  }[]
+  serviceExtras?: {
+    dismantleItems: number
+    assemblyItems: number
+    packingBoxes: number
+  }
   items?: {
     name: string
     quantity: number
@@ -162,6 +183,36 @@ const bookingSchema = new Schema<IBooking>(
       type: String,
       enum: ['small', 'medium', 'large', 'luton', 'multi-van', 'small-van', 'medium-van', 'large-van', 'truck'],
       required: [true, 'Vehicle type is required'],
+    },
+    vanCounts: {
+      small: { type: Number, min: 0, default: 0 },
+      medium: { type: Number, min: 0, default: 0 },
+      large: { type: Number, min: 0, default: 0 },
+      luton: { type: Number, min: 0, default: 0 },
+    },
+    drivers: {
+      type: Number,
+      min: 0,
+    },
+    helpers: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    stops: [
+      {
+        address: { type: String, required: true, trim: true },
+        city: { type: String, required: true, trim: true },
+        zipCode: { type: String, required: true, trim: true },
+        access: { type: String, enum: ['lift', 'stairs', 'ground'] },
+        stairsCount: { type: Number, min: 1 },
+        accessLabel: { type: String, trim: true },
+      },
+    ],
+    serviceExtras: {
+      dismantleItems: { type: Number, min: 0, default: 0 },
+      assemblyItems: { type: Number, min: 0, default: 0 },
+      packingBoxes: { type: Number, min: 0, default: 0 },
     },
     items: [
       {

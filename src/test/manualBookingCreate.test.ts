@@ -29,6 +29,8 @@ function buildManualOrderPayload(overrides: Record<string, unknown> = {}) {
     deliveryCity: 'Birmingham',
     deliveryZipCode: 'B1 1AA',
     serviceType: 'local',
+    vanCounts: { small: 0, medium: 1, large: 0, luton: 0 },
+    helpers: 1,
     vehicleType: 'medium',
     price: 250,
     paymentStatus: 'paid',

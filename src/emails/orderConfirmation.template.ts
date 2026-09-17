@@ -13,12 +13,22 @@ export type OrderConfirmationEmailInput = {
   deliveryZipCode: string
   serviceType: string
   vehicleType: string
+  vanCountsLabel?: string
   price: number
   paymentStatus: 'paid' | 'pending'
   paymentMethod?: string
   collectionStairs?: string
   deliveryStairs?: string
   peopleRequired?: string
+  drivers?: number
+  helpers?: number
+  stops?: {
+    address: string
+    city: string
+    zipCode: string
+    accessLabel?: string
+  }[]
+  serviceExtrasLabel?: string
   customerPortalUrl?: string
   supportEmail?: string
   websiteUrl?: string
@@ -101,6 +111,17 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationEmailInput):
   const deliveryAccessLine =
     deliveryAccess && deliveryAccess !== '—' ? `Access: ${deliveryAccess}` : null
   const peopleLine = input.peopleRequired ? `People required: ${input.peopleRequired}` : null
+  const vansLine = input.vanCountsLabel ? `Vans: ${input.vanCountsLabel}` : null
+  const extrasLine = input.serviceExtrasLabel ? `Extras: ${input.serviceExtrasLabel}` : null
+  const stopLines =
+    input.stops && input.stops.length > 0
+      ? input.stops.flatMap((stop, index) => [
+          `Stop ${index + 1}`,
+          `${stop.address}, ${stop.city}, ${stop.zipCode}`,
+          ...(stop.accessLabel ? [`Access: ${stop.accessLabel}`] : []),
+          '',
+        ])
+      : []
 
   const text = [
     `Hi ${name},`,
@@ -114,13 +135,15 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationEmailInput):
     `Date: ${input.pickupDate} at ${input.pickupTime}`,
     ...(pickupAccessLine ? [pickupAccessLine] : []),
     '',
+    ...stopLines,
     'Delivery',
     `${input.deliveryAddress}, ${input.deliveryCity}, ${input.deliveryZipCode}`,
     ...(deliveryAccessLine ? [deliveryAccessLine] : []),
     '',
     `Service: ${serviceLabel}`,
-    `Vehicle: ${vehicleLabel}`,
+    vansLine ? vansLine : `Vehicle: ${vehicleLabel}`,
     ...(peopleLine ? [peopleLine] : []),
+    ...(extrasLine ? [extrasLine] : []),
     `Price: ${formatPrice(input.price)} (${paymentLine})`,
     '',
     `Track your booking: ${customerPortalUrl}`,
@@ -129,6 +152,30 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationEmailInput):
     '',
     '— The Local Van team',
   ].join('\n')
+
+  const stopsHtml =
+    input.stops && input.stops.length > 0
+      ? input.stops
+          .map(
+            (stop, index) => `
+                <tr>
+                  <td style="padding:14px 16px;background:${BRAND.bg};font-size:13px;font-weight:700;color:${BRAND.navy};border-top:1px solid ${BRAND.border};">Stop ${index + 1}</td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 16px;font-size:14px;line-height:1.5;color:${BRAND.ink};">
+                    ${escapeHtml(stop.address)}<br />
+                    ${escapeHtml(stop.city)}, ${escapeHtml(stop.zipCode)}
+                    ${stop.accessLabel ? `<br /><span style="color:${BRAND.muted};">Access: ${escapeHtml(stop.accessLabel)}</span>` : ''}
+                  </td>
+                </tr>`
+          )
+          .join('')
+      : ''
+
+  const vehicleDisplay = input.vanCountsLabel || vehicleLabel
+  const extrasHtml = input.serviceExtrasLabel
+    ? `<br /><span style="color:${BRAND.muted};">Extras: ${escapeHtml(input.serviceExtrasLabel)}</span>`
+    : ''
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -184,6 +231,7 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationEmailInput):
                     ${pickupAccessLine ? `<br /><span style="color:${BRAND.muted};">${escapeHtml(pickupAccessLine)}</span>` : ''}
                   </td>
                 </tr>
+                ${stopsHtml}
                 <tr>
                   <td style="padding:14px 16px;background:${BRAND.bg};font-size:13px;font-weight:700;color:${BRAND.navy};border-top:1px solid ${BRAND.border};">Delivery</td>
                 </tr>
@@ -199,8 +247,9 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationEmailInput):
                 </tr>
                 <tr>
                   <td style="padding:14px 16px;font-size:14px;line-height:1.6;color:${BRAND.ink};">
-                    ${escapeHtml(serviceLabel)} · ${escapeHtml(vehicleLabel)}<br />
+                    ${escapeHtml(serviceLabel)} · ${escapeHtml(vehicleDisplay)}<br />
                     ${input.peopleRequired ? `<span style="color:${BRAND.muted};">People required: ${escapeHtml(input.peopleRequired)}</span><br />` : ''}
+                    ${extrasHtml}
                     <strong style="font-size:16px;color:${BRAND.navy};">${escapeHtml(formatPrice(input.price))}</strong>
                     <span style="color:${BRAND.muted};"> · ${escapeHtml(paymentLine)}</span>
                   </td>
