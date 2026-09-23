@@ -4,6 +4,7 @@ export type AdminNotificationType =
   | 'offer_accepted'
   | 'offer_rejected'
   | 'driver_application'
+  | 'job_cancelled_by_driver'
   | 'general'
 
 export interface IAdminNotification extends Document {
@@ -26,7 +27,13 @@ const adminNotificationSchema = new Schema<IAdminNotification>(
   {
     type: {
       type: String,
-      enum: ['offer_accepted', 'offer_rejected', 'driver_application', 'general'],
+      enum: [
+        'offer_accepted',
+        'offer_rejected',
+        'driver_application',
+        'job_cancelled_by_driver',
+        'general',
+      ],
       required: true,
     },
     title: {

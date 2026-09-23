@@ -3,7 +3,7 @@ import mongoose, { Document, Schema } from 'mongoose'
 export interface IBooking extends Document {
   customer: mongoose.Types.ObjectId
   driver?: mongoose.Types.ObjectId
-  status: 'pending' | 'offered' | 'confirmed' | 'in-progress' | 'completed' | 'cancelled' | 'disputed' | 'survey'
+  status: 'pending' | 'offered' | 'confirmed' | 'in-progress' | 'job-started' | 'completed' | 'cancelled' | 'disputed' | 'survey'
   
   // Pickup details
   pickupAddress: string
@@ -80,6 +80,8 @@ export interface IBooking extends Document {
   contactEmail: string
   
   // Driver job completion
+  pickupPhotos?: string[]
+  dropoffPhotos?: string[]
   completionPictures?: string[]
   driverNotes?: string
   
@@ -133,7 +135,7 @@ const bookingSchema = new Schema<IBooking>(
     },
     status: {
       type: String,
-      enum: ['pending', 'offered', 'confirmed', 'in-progress', 'completed', 'cancelled', 'disputed', 'survey'],
+      enum: ['pending', 'offered', 'confirmed', 'in-progress', 'job-started', 'completed', 'cancelled', 'disputed', 'survey'],
       default: 'pending',
     },
     pickupAddress: {
@@ -281,6 +283,22 @@ const bookingSchema = new Schema<IBooking>(
     contactEmail: {
       type: String,
       required: [true, 'Contact email is required'],
+    },
+    pickupPhotos: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: (v: string[]) => !v || v.length <= 3,
+        message: 'Maximum 3 pickup photos allowed',
+      },
+    },
+    dropoffPhotos: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: (v: string[]) => !v || v.length <= 3,
+        message: 'Maximum 3 drop-off photos allowed',
+      },
     },
     completionPictures: [String],
     driverNotes: String,

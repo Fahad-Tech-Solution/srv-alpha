@@ -6,6 +6,7 @@ export type BookingStatus =
   | 'offered'
   | 'confirmed'
   | 'in-progress'
+  | 'job-started'
   | 'completed'
   | 'cancelled'
   | 'disputed'
@@ -94,7 +95,7 @@ export function canReclaimForReoffer(booking: {
   driver?: mongoose.Types.ObjectId | null
 }): boolean {
   if (!hasAssignedDriver(booking)) return false
-  return ['confirmed', 'in-progress', 'offered'].includes(booking.status)
+  return ['confirmed', 'in-progress', 'job-started', 'offered'].includes(booking.status)
 }
 
 export function isOpenForDriverOffers(booking: {
@@ -154,8 +155,9 @@ export function applyStatusSideEffects(
       break
 
     case 'in-progress':
+    case 'job-started':
       if (!hasAssignedDriver(booking)) {
-        return { error: 'Cannot set status to in-progress without an assigned driver' }
+        return { error: `Cannot set status to ${newStatus} without an assigned driver` }
       }
       supersedePendingOffers(booking)
       booking.offeredToDrivers = []
@@ -195,5 +197,97 @@ export function applyStatusSideEffects(
   }
 
   return {}
+}
+
+/**
+ * Redact customer contact details and booking list prices for a driver who only
+ * has a pending offer (not yet assigned). Keeps job logistics + their offer price.
+ */
+export function sanitizeBookingForPendingOffer(
+  booking: IBooking | Record<string, any>,
+  driverId: string
+): Record<string, unknown> {
+  const obj =
+    typeof (booking as any).toObject === 'function'
+      ? (booking as any).toObject({ virtuals: true })
+      : { ...(booking as any) }
+
+  const normalizeId = (value: any): string | undefined => {
+    if (!value) return undefined
+    if (typeof value === 'string') return value
+    if (typeof value === 'object' && value._id) return String(value._id)
+    if (typeof value === 'object' && value.id) return String(value.id)
+    return undefined
+  }
+
+  const myOffers = (obj.driverOffers || []).filter(
+    (offer: any) => normalizeId(offer.driver) === String(driverId)
+  )
+
+  let offeredPrice: number | undefined = myOffers.find(
+    (offer: any) => offer.status === 'pending'
+  )?.offeredPrice
+
+  if (offeredPrice == null && myOffers.length) {
+    offeredPrice = myOffers[0].offeredPrice
+  }
+
+  if (offeredPrice == null) {
+    const offeredToDriver = (obj.offeredToDrivers || []).some(
+      (id: any) => normalizeId(id) === String(driverId)
+    )
+    if (offeredToDriver) {
+      offeredPrice = obj.finalPrice ?? obj.estimatedPrice
+    }
+  }
+
+  delete obj.contactPhone
+  delete obj.contactEmail
+  delete obj.estimatedPrice
+  delete obj.finalPrice
+  delete obj.amountPaid
+  delete obj.paymentMethod
+  delete obj.paymentReference
+  delete obj.additionalWorkPayment
+  delete obj.additionalWorkDescription
+  delete obj.notes
+  delete obj.pickupPhotos
+  delete obj.dropoffPhotos
+  delete obj.completionPictures
+  delete obj.driverNotes
+  delete obj.disputeReason
+
+  if (obj.customer && typeof obj.customer === 'object') {
+    obj.customer = {
+      _id: obj.customer._id,
+      name: obj.customer.name || 'Customer',
+    }
+  } else {
+    obj.customer = { name: 'Customer' }
+  }
+
+  obj.driverOffers = myOffers.map((offer: any) => ({
+    driver: offer.driver && typeof offer.driver === 'object'
+      ? { _id: offer.driver._id, name: offer.driver.name }
+      : offer.driver,
+    offeredPrice: offer.offeredPrice ?? offeredPrice,
+    status: offer.status,
+    offeredAt: offer.offeredAt,
+    respondedAt: offer.respondedAt,
+  }))
+
+  obj.offeredToDrivers = (obj.offeredToDrivers || []).filter(
+    (id: any) => normalizeId(id) === String(driverId)
+  )
+
+  if (offeredPrice != null && !obj.driverOffers.some((o: any) => o.status === 'pending')) {
+    obj.driverOffers.push({
+      driver: driverId,
+      offeredPrice,
+      status: 'pending',
+    })
+  }
+
+  return obj
 }
  

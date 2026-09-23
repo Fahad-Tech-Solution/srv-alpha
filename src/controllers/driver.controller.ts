@@ -7,6 +7,8 @@ import mongoose from 'mongoose'
 import {
   isOpenForDriverOffers,
   syncBookingStatusAfterOfferChanges,
+  reclaimBookingFromDriver,
+  sanitizeBookingForPendingOffer,
   UNASSIGNED_OFFER_STATUSES,
 } from '../utils/bookingAssignment'
 import { AdminNotification } from '../models/AdminNotification.model'
@@ -28,7 +30,9 @@ export const getDriverJobs = async (
     const skip = (Number(page) - 1) * Number(limit)
 
     const query: any = { driver: req.user.userId }
-    if (status) {
+    if (status === 'job-started' || status === 'in-progress') {
+      query.status = { $in: ['job-started', 'in-progress'] }
+    } else if (status) {
       query.status = status
     }
 
@@ -81,7 +85,7 @@ export const getDriverStats = async (
       Booking.countDocuments({ driver: req.user.userId }),
       Booking.countDocuments({
         driver: req.user.userId,
-        status: { $in: ['confirmed', 'in-progress'] },
+        status: { $in: ['confirmed', 'in-progress', 'job-started'] },
       }),
       Booking.countDocuments({
         driver: req.user.userId,
@@ -249,6 +253,12 @@ export const getDriverJob = async (
       return
     }
 
+    const isAssignedToDriver = booking.driver?.toString() === req.user.userId
+    if (!isAssignedToDriver) {
+      res.json(sanitizeBookingForPendingOffer(booking, req.user.userId))
+      return
+    }
+
     res.json(booking)
   } catch (error) {
     next(error)
@@ -268,7 +278,7 @@ export const updateJobStatus = async (
     }
 
     const { id } = req.params
-    const { status } = req.body
+    const { status, pickupPhotos } = req.body
 
     const booking = await Booking.findOne({
       _id: id,
@@ -280,17 +290,36 @@ export const updateJobStatus = async (
       return
     }
 
-    // Validate status transition
-    const allowedStatuses = ['confirmed', 'in-progress', 'completed']
+    const allowedStatuses = ['job-started', 'in-progress', 'completed']
     if (!allowedStatuses.includes(status)) {
       res.status(400).json({ message: 'Invalid status transition' })
       return
     }
 
-    booking.status = status
-    if (status === 'completed') {
+    if (status === 'job-started' || status === 'in-progress') {
+      if (booking.status !== 'confirmed' && booking.status !== 'job-started' && booking.status !== 'in-progress') {
+        res.status(400).json({
+          message: 'Only confirmed jobs can be started',
+        })
+        return
+      }
+      booking.status = 'job-started'
+      if (Array.isArray(pickupPhotos)) {
+        if (pickupPhotos.length > 3) {
+          res.status(400).json({ message: 'Maximum 3 pickup photos allowed' })
+          return
+        }
+        booking.pickupPhotos = pickupPhotos.filter((url: unknown) => typeof url === 'string' && url)
+      }
+    } else if (status === 'completed') {
+      if (!['confirmed', 'job-started', 'in-progress'].includes(booking.status)) {
+        res.status(400).json({
+          message: 'Job must be started (or confirmed) before it can be completed',
+        })
+        return
+      }
+      booking.status = 'completed'
       booking.completedAt = new Date()
-      // Completing a job recognizes the booked price as collected revenue
       if (booking.paymentStatus !== 'refunded') {
         booking.paymentStatus = 'paid'
         if (booking.amountPaid == null) {
@@ -312,6 +341,61 @@ export const updateJobStatus = async (
   }
 }
 
+// Start job (confirmed → job-started) with optional pickup photos
+export const startJob = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ message: 'Unauthorized' })
+      return
+    }
+
+    const { id } = req.params
+    const { pickupPhotos } = req.body
+
+    const booking = await Booking.findOne({
+      _id: id,
+      driver: req.user.userId,
+    })
+
+    if (!booking) {
+      res.status(404).json({ message: 'Job not found' })
+      return
+    }
+
+    if (booking.status !== 'confirmed') {
+      if (booking.status === 'job-started' || booking.status === 'in-progress') {
+        res.json({ message: 'Job already started', booking })
+        return
+      }
+      res.status(400).json({ message: 'Only confirmed jobs can be started' })
+      return
+    }
+
+    if (Array.isArray(pickupPhotos)) {
+      if (pickupPhotos.length > 3) {
+        res.status(400).json({ message: 'Maximum 3 pickup photos allowed' })
+        return
+      }
+      booking.pickupPhotos = pickupPhotos.filter((url: unknown) => typeof url === 'string' && url)
+    }
+
+    booking.status = 'job-started'
+    await booking.save()
+    await booking.populate('customer', 'name email phone')
+
+    res.json({
+      message: 'Job started successfully',
+      booking,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
 // Add completion pictures and notes (also marks the job completed)
 export const addCompletionDetails = async (
   req: AuthRequest,
@@ -325,7 +409,7 @@ export const addCompletionDetails = async (
     }
 
     const { id } = req.params
-    const { pictures, notes } = req.body
+    const { pictures, notes, pickupPhotos, dropoffPhotos } = req.body
 
     const booking = await Booking.findOne({
       _id: id,
@@ -337,15 +421,36 @@ export const addCompletionDetails = async (
       return
     }
 
-    if (!['confirmed', 'in-progress'].includes(booking.status)) {
+    if (!['confirmed', 'in-progress', 'job-started'].includes(booking.status)) {
       res.status(400).json({
-        message: 'Only confirmed or in-progress jobs can be completed',
+        message: 'Only confirmed or started jobs can be completed',
       })
       return
     }
 
+    if (Array.isArray(pickupPhotos)) {
+      if (pickupPhotos.length > 3) {
+        res.status(400).json({ message: 'Maximum 3 pickup photos allowed' })
+        return
+      }
+      booking.pickupPhotos = pickupPhotos.filter((url: unknown) => typeof url === 'string' && url)
+    }
+
+    if (Array.isArray(dropoffPhotos)) {
+      if (dropoffPhotos.length > 3) {
+        res.status(400).json({ message: 'Maximum 3 drop-off photos allowed' })
+        return
+      }
+      booking.dropoffPhotos = dropoffPhotos.filter((url: unknown) => typeof url === 'string' && url)
+      booking.completionPictures = booking.dropoffPhotos
+    }
+
     if (pictures && Array.isArray(pictures)) {
-      booking.completionPictures = pictures
+      booking.completionPictures = pictures.slice(0, 6)
+      // Back-compat: if dedicated dropoff not provided, use completion pictures as dropoff
+      if (!Array.isArray(dropoffPhotos) && pictures.length > 0) {
+        booking.dropoffPhotos = pictures.slice(0, 3)
+      }
     }
     if (notes) {
       booking.driverNotes = notes
@@ -412,6 +517,97 @@ export const disputeJob = async (
 
     res.json({
       message: 'Job disputed successfully',
+      booking,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+// Driver cancels a taken job → unassign so admin can re-offer; notify admin
+export const cancelTakenJob = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ message: 'Unauthorized' })
+      return
+    }
+
+    const { id } = req.params
+    const { reason } = req.body as { reason?: string }
+
+    const booking = await Booking.findOne({
+      _id: id,
+      driver: req.user.userId,
+    }).populate('driver', 'name email')
+
+    if (!booking) {
+      res.status(404).json({ message: 'Job not found' })
+      return
+    }
+
+    if (!['confirmed', 'job-started', 'in-progress'].includes(booking.status)) {
+      res.status(400).json({
+        message: 'Only confirmed or started jobs can be cancelled by the driver',
+      })
+      return
+    }
+
+    const driverDoc = booking.driver as any
+    const driverName =
+      typeof driverDoc === 'object' && driverDoc?.name ? driverDoc.name : 'A driver'
+    const driverObjectId = new mongoose.Types.ObjectId(req.user.userId)
+    const jobName = `${booking.pickupCity} → ${booking.deliveryCity}`
+    const jobLabel = booking.orderCode || jobName
+    const reasonText = reason?.trim()
+
+    reclaimBookingFromDriver(booking)
+
+    if (!booking.notes) {
+      booking.notes = []
+    }
+    booking.notes.push({
+      text: reasonText
+        ? `Driver ${driverName} cancelled the job: ${reasonText}`
+        : `Driver ${driverName} cancelled the job`,
+      createdBy: driverObjectId,
+      createdAt: new Date(),
+      type: 'issue',
+    })
+
+    await booking.save()
+    await booking.populate('customer', 'name email phone')
+
+    const notification = await AdminNotification.create({
+      type: 'job_cancelled_by_driver',
+      title: 'Driver cancelled a job',
+      message: reasonText
+        ? `${driverName} cancelled ${jobName} (${jobLabel}). Reason: ${reasonText}`
+        : `${driverName} cancelled ${jobName} (${jobLabel}). The job is available to reassign.`,
+      booking: booking._id,
+      driver: driverObjectId,
+      driverName,
+      jobId: booking._id.toString(),
+      jobName,
+      orderCode: booking.orderCode,
+      offeredPrice: booking.finalPrice ?? booking.estimatedPrice,
+      isRead: false,
+    })
+
+    const populatedNotification = await AdminNotification.findById(notification._id)
+      .populate('driver', 'name email')
+      .populate('booking', 'orderCode status pickupCity deliveryCity')
+      .lean()
+
+    if (populatedNotification) {
+      emitAdminNotification(populatedNotification as Record<string, unknown>)
+    }
+
+    res.json({
+      message: 'Job cancelled successfully. It is now available for admin to reassign.',
       booking,
     })
   } catch (error) {
@@ -919,7 +1115,11 @@ export const getAvailableJobs = async (
       .populate('driverOffers.driver', 'name email phone')
       .sort({ pickupDate: 1, createdAt: -1 })
 
-    res.json({ bookings })
+    res.json({
+      bookings: bookings.map((booking) =>
+        sanitizeBookingForPendingOffer(booking, req.user!.userId)
+      ),
+    })
   } catch (error) {
     next(error)
   }

@@ -64,7 +64,7 @@ export const getAdminStats = async (
       Booking.countDocuments({ status: 'pending' }),
       Booking.countDocuments({ status: 'offered' }),
       Booking.countDocuments({ status: 'confirmed' }),
-      Booking.countDocuments({ status: 'in-progress' }),
+      Booking.countDocuments({ status: { $in: ['in-progress', 'job-started'] } }),
       Booking.countDocuments({ status: 'completed' }),
       Booking.countDocuments({ status: 'disputed' }),
       Booking.countDocuments({ status: 'cancelled' }),
@@ -104,7 +104,7 @@ export const getAdminStats = async (
       Booking.aggregate([
         {
           $match: {
-            status: { $in: ['confirmed', 'in-progress'] },
+            status: { $in: ['confirmed', 'in-progress', 'job-started'] },
           },
         },
         {
@@ -229,7 +229,7 @@ export const getAllUsers = async (
             }),
             Booking.countDocuments({
               customer: user._id,
-              status: { $in: ['confirmed', 'in-progress'] },
+              status: { $in: ['confirmed', 'in-progress', 'job-started'] },
             }),
             Booking.countDocuments({ customer: user._id, status: 'completed' }),
           ])
@@ -900,7 +900,7 @@ export const getAllDrivers = async (
           Booking.countDocuments({ driver: driver._id, status: 'completed' }),
           Booking.countDocuments({
             driver: driver._id,
-            status: { $in: ['confirmed', 'in-progress'] },
+            status: { $in: ['confirmed', 'in-progress', 'job-started'] },
           }),
         ])
 

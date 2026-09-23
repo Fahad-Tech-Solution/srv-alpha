@@ -6,7 +6,9 @@ import {
   getDriverJob,
   updateJobStatus,
   addCompletionDetails,
+  startJob,
   disputeJob,
+  cancelTakenJob,
   getDriverVehicle,
   updateDriverVehicle,
   getDriverVehicles,
@@ -36,8 +38,10 @@ router.get('/stats', getDriverStats)
 router.get('/jobs', getDriverJobs)
 router.get('/jobs/:id', getDriverJob)
 router.put('/jobs/:id/status', updateJobStatus)
+router.post('/jobs/:id/start', startJob)
 router.post('/jobs/:id/complete', addCompletionDetails)
 router.post('/jobs/:id/dispute', disputeJob)
+router.post('/jobs/:id/cancel', cancelTakenJob)
 
 // Vehicle (legacy - single vehicle, kept for backward compatibility)
 router.get('/vehicle', getDriverVehicle)
