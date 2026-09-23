@@ -75,6 +75,33 @@ const driverApplicationValidation = [
   body('username').optional().trim(),
   body('address').optional().trim(),
   body('businessName').optional().trim(),
+  body('vehicleRegistration').optional().trim(),
+  body('vehicleCategory')
+    .optional()
+    .isIn(['small-van', 'medium-van', 'large-van', 'truck'])
+    .withMessage('Invalid vehicle category'),
+  body('vehicleMake').optional().trim(),
+  body('vehicleModel').optional().trim(),
+  body('vehicleSeats').optional().isInt({ min: 1, max: 20 }),
+  body('vehicleBaseLocation').optional().trim(),
+  body('vehicleType').optional().trim(),
+  body('vehicleFuelType')
+    .optional()
+    .isIn(['petrol', 'diesel', 'lpg', 'hybrid', 'electric']),
+  body('vehicleRegistrationDocumentType')
+    .optional()
+    .isIn(['logbook', 'mot', 'v5']),
+  body('vehicleMotorbikeCapacity').optional().isInt({ min: 0, max: 20 }),
+  body('vehicleTailLift').optional().isBoolean(),
+  body('vehicleTrailer').optional().isBoolean(),
+  body('vehicleTotalPayload.value').optional().isFloat({ min: 0 }),
+  body('vehicleTotalPayload.unit').optional().isIn(['kg', 'tonnes']),
+  body('vehicleLoadingCapacity.value').optional().isFloat({ min: 0 }),
+  body('vehicleLoadingCapacity.unit').optional().isIn(['m³', 'ft³']),
+  body('vehicleMaxLength.value').optional().isFloat({ min: 0 }),
+  body('vehicleMaxLength.unit').optional().isIn(['m', 'ft']),
+  body('vehiclePayload.value').optional().isFloat({ min: 0 }),
+  body('vehiclePayload.unit').optional().isIn(['kg', 'tonnes']),
   handleValidationErrors,
 ]
 

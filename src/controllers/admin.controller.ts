@@ -54,6 +54,7 @@ export const getAdminStats = async (
       totalRevenue,
       totalSpent,
       pipelineValue,
+      recentCompleted,
     ] = await Promise.all([
       User.countDocuments({ isActive: true }),
       User.countDocuments({ role: 'admin', isActive: true }),
@@ -113,6 +114,14 @@ export const getAdminStats = async (
           },
         },
       ]),
+      Booking.find({ status: 'completed' })
+        .sort({ completedAt: -1, updatedAt: -1 })
+        .limit(5)
+        .select(
+          'orderCode pickupCity deliveryCity serviceType finalPrice estimatedPrice completedAt paymentStatus customer'
+        )
+        .populate('customer', 'name')
+        .lean(),
     ])
 
     const revenue = totalRevenue[0]?.total || 0
@@ -144,6 +153,19 @@ export const getAdminStats = async (
         totalSpent: spent,
         pipeline,
       },
+      recentTransactions: (recentCompleted || []).map((job: any) => ({
+        _id: job._id,
+        orderCode: job.orderCode,
+        customerName:
+          (job.customer && typeof job.customer === 'object' && job.customer.name) ||
+          'Customer',
+        pickupCity: job.pickupCity,
+        deliveryCity: job.deliveryCity,
+        serviceType: job.serviceType,
+        amount: job.finalPrice ?? job.estimatedPrice ?? 0,
+        completedAt: job.completedAt,
+        paymentStatus: job.paymentStatus,
+      })),
     })
   } catch (error) {
     next(error)

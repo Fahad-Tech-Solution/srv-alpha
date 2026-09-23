@@ -32,6 +32,23 @@ export type DriverApplicationInput = {
   vehicleRegistrationDocument?: string
   vehiclePhoto?: string
   vehicleType?: string
+  vehicleTotalPayload?: {
+    value?: number
+    unit?: 'kg' | 'tonnes'
+  }
+  vehicleLoadingCapacity?: {
+    value?: number
+    unit?: 'm³' | 'ft³'
+  }
+  vehicleMaxLength?: {
+    value?: number
+    unit?: 'm' | 'ft'
+  }
+  vehicleMotorbikeCapacity?: number
+  vehiclePayload?: {
+    value?: number
+    unit?: 'kg' | 'tonnes'
+  }
   vehicleFuelType?: 'petrol' | 'diesel' | 'lpg' | 'hybrid' | 'electric'
   vehicleTailLift?: boolean
   vehicleTrailer?: boolean
@@ -42,6 +59,42 @@ export type DriverApplicationInput = {
     sortCode?: string
     bankName?: string
     bankStatement?: string
+  }
+}
+
+function parseMeasure(
+  measure?: { value?: number | string; unit?: string },
+  defaultUnit?: string
+): { value: number; unit: string } | undefined {
+  if (measure == null || measure.value === undefined || measure.value === '') return undefined
+  const num = typeof measure.value === 'number' ? measure.value : parseFloat(String(measure.value))
+  if (Number.isNaN(num)) return undefined
+  return { value: num, unit: measure.unit || defaultUnit || '' }
+}
+
+function normalizeVehicleFields(input: DriverApplicationInput): Partial<IUser> {
+  return {
+    vehicleRegistration: input.vehicleRegistration?.trim().toUpperCase(),
+    vehicleCategory: input.vehicleCategory,
+    vehicleMake: input.vehicleMake?.trim(),
+    vehicleModel: input.vehicleModel?.trim(),
+    vehicleSeats: Number(input.vehicleSeats) || 1,
+    vehicleBaseLocation: input.vehicleBaseLocation?.trim(),
+    vehicleRegistrationDocumentType: input.vehicleRegistrationDocumentType,
+    vehicleRegistrationDocument: input.vehicleRegistrationDocument,
+    vehiclePhoto: input.vehiclePhoto,
+    vehicleType: input.vehicleType?.trim(),
+    vehicleTotalPayload: parseMeasure(input.vehicleTotalPayload, 'kg') as IUser['vehicleTotalPayload'],
+    vehicleLoadingCapacity: parseMeasure(
+      input.vehicleLoadingCapacity,
+      'm³'
+    ) as IUser['vehicleLoadingCapacity'],
+    vehicleMaxLength: parseMeasure(input.vehicleMaxLength, 'm') as IUser['vehicleMaxLength'],
+    vehicleMotorbikeCapacity: Number(input.vehicleMotorbikeCapacity) || 0,
+    vehiclePayload: parseMeasure(input.vehiclePayload, 'kg') as IUser['vehiclePayload'],
+    vehicleFuelType: input.vehicleFuelType,
+    vehicleTailLift: Boolean(input.vehicleTailLift),
+    vehicleTrailer: Boolean(input.vehicleTrailer),
   }
 }
 
@@ -96,12 +149,28 @@ export async function submitDriverApplication(
 ): Promise<{ userId: string }> {
   const email = input.email.trim().toLowerCase()
   const existing = await User.findOne({ email })
+  const vehicleFields = normalizeVehicleFields(input)
+
+  const applicationFields = {
+    name: input.name.trim(),
+    phone: input.phone?.trim(),
+    username: input.username?.trim()?.toLowerCase(),
+    address: input.address?.trim(),
+    businessName: input.businessName?.trim(),
+    drivingLicence: input.drivingLicence,
+    goodsInTransitInsurance: input.goodsInTransitInsurance,
+    publicLiability: input.publicLiability,
+    proofOfAddress: input.proofOfAddress,
+    introductionVideoUrl: input.introductionVideoUrl,
+    bankDetails: input.bankDetails,
+    ...vehicleFields,
+  }
 
   if (existing) {
     if (existing.role === 'driver' && existing.applicationStatus === 'rejected') {
       // Allow re-application
       Object.assign(existing, {
-        ...input,
+        ...applicationFields,
         email,
         role: 'driver',
         isActive: false,
@@ -111,6 +180,11 @@ export async function submitDriverApplication(
         applicationReviewNote: undefined,
         password: createRandomBootstrapPassword(),
       })
+      existing.markModified('vehicleTotalPayload')
+      existing.markModified('vehicleLoadingCapacity')
+      existing.markModified('vehicleMaxLength')
+      existing.markModified('vehiclePayload')
+      existing.markModified('bankDetails')
       await existing.save()
     } else {
       throw Object.assign(new Error('An account with this email already exists'), { statusCode: 400 })
@@ -121,9 +195,8 @@ export async function submitDriverApplication(
   }
 
   const user = await User.create({
-    ...input,
+    ...applicationFields,
     email,
-    name: input.name.trim(),
     role: 'driver',
     isActive: false,
     applicationStatus: 'pending',

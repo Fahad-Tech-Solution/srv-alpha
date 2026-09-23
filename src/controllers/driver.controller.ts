@@ -151,8 +151,9 @@ export const getDriverStats = async (
         .sort({ completedAt: -1, updatedAt: -1 })
         .limit(10)
         .select(
-          'orderCode pickupCity deliveryCity finalPrice estimatedPrice completedAt paymentStatus'
+          'orderCode pickupCity deliveryCity finalPrice estimatedPrice completedAt paymentStatus customer'
         )
+        .populate('customer', 'name')
         .lean(),
     ])
 
@@ -168,6 +169,9 @@ export const getDriverStats = async (
       recentEarnings: recentEarnings.map((job: any) => ({
         _id: job._id,
         orderCode: job.orderCode,
+        customerName:
+          (job.customer && typeof job.customer === 'object' && job.customer.name) ||
+          'Customer',
         pickupCity: job.pickupCity,
         deliveryCity: job.deliveryCity,
         amount: job.finalPrice ?? job.estimatedPrice ?? 0,
