@@ -558,27 +558,7 @@ export const getAllBookings = async (
 
     const bookings = await Booking.aggregate([
       { $match: query },
-      {
-        $addFields: {
-          _statusRank: {
-            $switch: {
-              branches: [
-                { case: { $in: ['$status', ['pending', 'offered', 'survey']] }, then: 0 },
-                {
-                  case: { $in: ['$status', ['confirmed', 'in-progress', 'job-started']] },
-                  then: 1,
-                },
-                {
-                  case: { $in: ['$status', ['completed', 'cancelled', 'disputed']] },
-                  then: 2,
-                },
-              ],
-              default: 1,
-            },
-          },
-        },
-      },
-      { $sort: { _statusRank: 1, pickupDate: 1, createdAt: -1 } },
+      { $sort: { createdAt: -1 } },
       { $skip: skip },
       { $limit: Number(limit) },
       {
@@ -605,7 +585,6 @@ export const getAllBookings = async (
       },
       {
         $project: {
-          _statusRank: 0,
           'customer.password': 0,
           'customer.firstAccessToken': 0,
           'driver.password': 0,
