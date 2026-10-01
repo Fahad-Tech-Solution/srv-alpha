@@ -7,6 +7,8 @@ import {
   updateJobStatus,
   addCompletionDetails,
   startJob,
+  endJob,
+  addDriverJobNote,
   disputeJob,
   cancelTakenJob,
   getDriverVehicle,
@@ -23,6 +25,9 @@ import {
   getAvailableJobs,
   acceptJobOffer,
   rejectJobOffer,
+  requestWithdrawal,
+  listDriverWithdrawals,
+  getDriverCalendar,
 } from '../controllers/driver.controller'
 import { authenticate } from '../middlewares/auth.middleware'
 
@@ -33,12 +38,17 @@ router.use(authenticate)
 
 // Stats
 router.get('/stats', getDriverStats)
+router.get('/calendar', getDriverCalendar)
+router.get('/withdrawals', listDriverWithdrawals)
+router.post('/withdrawals', requestWithdrawal)
 
 // Jobs
 router.get('/jobs', getDriverJobs)
 router.get('/jobs/:id', getDriverJob)
 router.put('/jobs/:id/status', updateJobStatus)
 router.post('/jobs/:id/start', startJob)
+router.post('/jobs/:id/end', endJob)
+router.post('/jobs/:id/notes', addDriverJobNote)
 router.post('/jobs/:id/complete', addCompletionDetails)
 router.post('/jobs/:id/dispute', disputeJob)
 router.post('/jobs/:id/cancel', cancelTakenJob)

@@ -19,6 +19,7 @@ import {
   getAllDrivers,
   handleDispute,
   sendEmailReminder,
+  sendInvoiceLink,
   offerJobToDrivers,
   addUserNote,
   addBookingNote,
@@ -27,6 +28,9 @@ import {
   markAdminNotificationRead,
   markAllAdminNotificationsRead,
   resendCustomerInvite,
+  getBookingsCalendar,
+  listWithdrawals,
+  processWithdrawal,
 } from '../controllers/admin.controller'
 import { authenticate } from '../middlewares/auth.middleware'
 import { requireAdmin } from '../middlewares/admin.middleware'
@@ -50,6 +54,8 @@ const createBookingValidation = [
   body('customer.email').isEmail().normalizeEmail(SAFE_EMAIL_NORMALIZE),
   body('customer.phone').isString().trim().notEmpty(),
   body('pickupAddress').isString().trim().notEmpty(),
+  body('pickupHouseNumber').optional().isString().trim(),
+  body('pickupHouseName').optional().isString().trim(),
   body('pickupCity').isString().trim().notEmpty(),
   body('pickupZipCode').isString().trim().notEmpty(),
   body('pickupDate').isISO8601(),
@@ -71,6 +77,8 @@ const createBookingValidation = [
     '8pm-9pm',
   ]),
   body('deliveryAddress').isString().trim().notEmpty(),
+  body('deliveryHouseNumber').optional().isString().trim(),
+  body('deliveryHouseName').optional().isString().trim(),
   body('deliveryCity').isString().trim().notEmpty(),
   body('deliveryZipCode').isString().trim().notEmpty(),
   body('serviceType').isIn(['local', 'long-distance', 'interstate']),
@@ -81,8 +89,11 @@ const createBookingValidation = [
   body('vanCounts.luton').optional().isInt({ min: 0, max: 20 }),
   body('helpers').optional().isInt({ min: 0, max: 20 }),
   body('drivers').optional().isInt({ min: 0, max: 20 }),
+  body('hours').optional().isFloat({ min: 1 }),
   body('stops').optional().isArray({ max: 3 }),
   body('stops.*.address').optional().isString().trim().notEmpty(),
+  body('stops.*.houseNumber').optional().isString().trim(),
+  body('stops.*.houseName').optional().isString().trim(),
   body('stops.*.city').optional().isString().trim().notEmpty(),
   body('stops.*.zipCode').optional().isString().trim().notEmpty(),
   body('stops.*.access').optional().isIn(['lift', 'stairs', 'ground']),
@@ -98,7 +109,9 @@ const createBookingValidation = [
   body('paymentReference').optional().isString().trim(),
   body('specialInstructions').optional().isString().trim(),
   body('sendConfirmationEmail').optional().isBoolean(),
+  body('sendPaymentLink').optional().isBoolean(),
   body('status').optional().isIn(['pending', 'survey']),
+  body('surveyType').optional().isIn(['home', 'video']),
   body('pickupAccess').optional().isIn(['lift', 'stairs', 'ground']),
   body('pickupStairsCount').optional().isInt({ min: 1, max: 50 }),
   body('deliveryAccess').optional().isIn(['lift', 'stairs', 'ground']),
@@ -113,6 +126,9 @@ const createBookingValidation = [
     }
     if (req.body.deliveryAccess === 'stairs' && !req.body.deliveryStairsCount) {
       throw new Error('Delivery stairs count is required when delivery access is stairs')
+    }
+    if (req.body.status === 'survey' && !req.body.surveyType) {
+      throw new Error('surveyType (home or video) is required for survey bookings')
     }
     const vc = req.body.vanCounts || {}
     const vanTotal =
@@ -171,6 +187,7 @@ router.get('/drivers', getAllDrivers)
 
 // Booking management
 router.get('/bookings', getAllBookings)
+router.get('/bookings/calendar', getBookingsCalendar)
 router.post('/bookings', createBookingValidation, createBookingAdmin)
 router.put('/bookings/:id', updateBookingAdmin)
 router.delete('/bookings/:id', deleteBookingAdmin)
@@ -178,9 +195,14 @@ router.post('/bookings/:id/assign-driver', assignDriver)
 router.post('/bookings/:id/reclaim', reclaimBooking)
 router.post('/bookings/:id/handle-dispute', handleDispute)
 router.post('/bookings/:id/send-reminder', sendEmailReminder)
+router.post('/bookings/:id/send-invoice', sendInvoiceLink)
 router.post('/bookings/:id/offer-to-drivers', offerJobToDrivers)
 router.post('/bookings/:id/notes', addBookingNote)
 router.post('/bookings/:id/additional-work-payment', recordAdditionalWorkPayment)
+
+// Withdrawals
+router.get('/withdrawals', listWithdrawals)
+router.post('/withdrawals/:id/process', processWithdrawal)
 
 // User notes
 router.post('/users/:id/notes', addUserNote)

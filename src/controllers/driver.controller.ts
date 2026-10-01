@@ -163,6 +163,59 @@ export const getDriverStats = async (
 
     const totalEarnings = earningsAgg[0]?.total || 0
 
+    // Balance: in review = completed in last 7 days; available = older completed − pending/approved withdrawals
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    const { Withdrawal } = await import('../models/Withdrawal.model')
+    const [inReviewAgg, clearedAgg, pendingWithdrawals] = await Promise.all([
+      Booking.aggregate([
+        {
+          $match: {
+            driver: driverObjectId,
+            status: 'completed',
+            completedAt: { $gte: sevenDaysAgo },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: { $ifNull: ['$finalPrice', '$estimatedPrice'] } },
+          },
+        },
+      ]),
+      Booking.aggregate([
+        {
+          $match: {
+            driver: driverObjectId,
+            status: 'completed',
+            $or: [
+              { completedAt: { $lt: sevenDaysAgo } },
+              { completedAt: { $exists: false } },
+            ],
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: { $ifNull: ['$finalPrice', '$estimatedPrice'] } },
+          },
+        },
+      ]),
+      Withdrawal.aggregate([
+        {
+          $match: {
+            driver: driverObjectId,
+            status: { $in: ['pending', 'approved', 'paid'] },
+          },
+        },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+    ])
+
+    const balanceInReview = inReviewAgg[0]?.total || 0
+    const cleared = clearedAgg[0]?.total || 0
+    const withdrawn = pendingWithdrawals[0]?.total || 0
+    const balanceAvailable = Math.max(0, cleared - withdrawn)
+
     res.json({
       totalJobs,
       activeJobs,
@@ -170,6 +223,11 @@ export const getDriverStats = async (
       pendingJobs,
       offeredJobs,
       totalEarnings,
+      balance: {
+        current: totalEarnings,
+        inReview: balanceInReview,
+        available: balanceAvailable,
+      },
       recentEarnings: recentEarnings.map((job: any) => ({
         _id: job._id,
         orderCode: job.orderCode,
@@ -341,7 +399,7 @@ export const updateJobStatus = async (
   }
 }
 
-// Start job (confirmed → job-started) with optional pickup photos
+// Start job (confirmed → job-started) with optional pickup photos + GPS
 export const startJob = async (
   req: AuthRequest,
   res: Response,
@@ -354,7 +412,7 @@ export const startJob = async (
     }
 
     const { id } = req.params
-    const { pickupPhotos } = req.body
+    const { pickupPhotos, lat, lng } = req.body
 
     const booking = await Booking.findOne({
       _id: id,
@@ -384,6 +442,9 @@ export const startJob = async (
     }
 
     booking.status = 'job-started'
+    booking.jobStartedAt = new Date()
+    if (typeof lat === 'number' && Number.isFinite(lat)) booking.jobStartLat = lat
+    if (typeof lng === 'number' && Number.isFinite(lng)) booking.jobStartLng = lng
     await booking.save()
     await booking.populate('customer', 'name email phone')
 
@@ -391,6 +452,91 @@ export const startJob = async (
       message: 'Job started successfully',
       booking,
     })
+  } catch (error) {
+    next(error)
+  }
+}
+
+/** Record end GPS/time without completing (photos/notes still via complete). */
+export const endJob = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ message: 'Unauthorized' })
+      return
+    }
+
+    const { id } = req.params
+    const { lat, lng } = req.body
+
+    const booking = await Booking.findOne({
+      _id: id,
+      driver: req.user.userId,
+    })
+
+    if (!booking) {
+      res.status(404).json({ message: 'Job not found' })
+      return
+    }
+
+    if (!['job-started', 'in-progress'].includes(booking.status)) {
+      res.status(400).json({ message: 'Job must be started before it can be ended' })
+      return
+    }
+
+    booking.jobEndedAt = new Date()
+    if (typeof lat === 'number' && Number.isFinite(lat)) booking.jobEndLat = lat
+    if (typeof lng === 'number' && Number.isFinite(lng)) booking.jobEndLng = lng
+    await booking.save()
+    await booking.populate('customer', 'name email phone')
+
+    res.json({ message: 'Job end recorded', booking })
+  } catch (error) {
+    next(error)
+  }
+}
+
+/** Append a timestamped driver note (also updates driverNotes summary). */
+export const addDriverJobNote = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ message: 'Unauthorized' })
+      return
+    }
+
+    const { id } = req.params
+    const text = String(req.body.text || '').trim()
+    if (!text) {
+      res.status(400).json({ message: 'Note text is required' })
+      return
+    }
+
+    const booking = await Booking.findOne({
+      _id: id,
+      driver: req.user.userId,
+    })
+    if (!booking) {
+      res.status(404).json({ message: 'Job not found' })
+      return
+    }
+
+    if (!booking.driverNoteEntries) booking.driverNoteEntries = []
+    booking.driverNoteEntries.push({
+      text,
+      createdAt: new Date(),
+      createdBy: new mongoose.Types.ObjectId(req.user.userId),
+    })
+    booking.driverNotes = booking.driverNoteEntries.map((n) => n.text).join('\n\n')
+    await booking.save()
+
+    res.json({ message: 'Note added', booking })
   } catch (error) {
     next(error)
   }
@@ -454,6 +600,16 @@ export const addCompletionDetails = async (
     }
     if (notes) {
       booking.driverNotes = notes
+    }
+
+    if (typeof req.body.lat === 'number' && Number.isFinite(req.body.lat)) {
+      booking.jobEndLat = req.body.lat
+    }
+    if (typeof req.body.lng === 'number' && Number.isFinite(req.body.lng)) {
+      booking.jobEndLng = req.body.lng
+    }
+    if (!booking.jobEndedAt) {
+      booking.jobEndedAt = new Date()
     }
 
     booking.status = 'completed'
@@ -1920,6 +2076,149 @@ export const deleteDriverVehicle = async (
     res.json({
       message: 'Vehicle deleted successfully',
     })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const getDriverBalance = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ message: 'Unauthorized' })
+      return
+    }
+    // Reuse stats endpoint balance logic via internal call pattern
+    req.url = '/stats'
+    await getDriverStats(req, res, next)
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const requestWithdrawal = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ message: 'Unauthorized' })
+      return
+    }
+
+    const amount = Number(req.body.amount)
+    const note = req.body.note ? String(req.body.note).trim() : undefined
+    if (!Number.isFinite(amount) || amount <= 0) {
+      res.status(400).json({ message: 'A positive amount is required' })
+      return
+    }
+
+    const { Withdrawal } = await import('../models/Withdrawal.model')
+    const driverObjectId = new mongoose.Types.ObjectId(req.user.userId)
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+
+    const [clearedAgg, pendingWithdrawals] = await Promise.all([
+      Booking.aggregate([
+        {
+          $match: {
+            driver: driverObjectId,
+            status: 'completed',
+            $or: [
+              { completedAt: { $lt: sevenDaysAgo } },
+              { completedAt: { $exists: false } },
+            ],
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: { $ifNull: ['$finalPrice', '$estimatedPrice'] } },
+          },
+        },
+      ]),
+      Withdrawal.aggregate([
+        {
+          $match: {
+            driver: driverObjectId,
+            status: { $in: ['pending', 'approved', 'paid'] },
+          },
+        },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+    ])
+
+    const available = Math.max(0, (clearedAgg[0]?.total || 0) - (pendingWithdrawals[0]?.total || 0))
+    if (amount > available) {
+      res.status(400).json({
+        message: `Requested amount exceeds available balance (£${available.toFixed(2)})`,
+      })
+      return
+    }
+
+    const withdrawal = await Withdrawal.create({
+      driver: driverObjectId,
+      amount,
+      note,
+      status: 'pending',
+    })
+
+    res.status(201).json({ message: 'Withdrawal requested', withdrawal })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const listDriverWithdrawals = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ message: 'Unauthorized' })
+      return
+    }
+    const { Withdrawal } = await import('../models/Withdrawal.model')
+    const withdrawals = await Withdrawal.find({ driver: req.user.userId })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean()
+    res.json({ withdrawals })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const getDriverCalendar = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ message: 'Unauthorized' })
+      return
+    }
+    const from = req.query.from ? new Date(String(req.query.from)) : null
+    const to = req.query.to ? new Date(String(req.query.to)) : null
+    if (!from || !to || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      res.status(400).json({ message: 'from and to query params (ISO dates) are required' })
+      return
+    }
+
+    const bookings = await Booking.find({
+      driver: req.user.userId,
+      pickupDate: { $gte: from, $lte: to },
+    })
+      .select('orderCode status pickupDate pickupTime pickupCity deliveryCity surveyType')
+      .sort({ pickupDate: 1 })
+      .lean()
+
+    res.json({ bookings })
   } catch (error) {
     next(error)
   }

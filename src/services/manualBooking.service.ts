@@ -27,6 +27,7 @@ import {
   totalVans,
   validateStops,
 } from '../utils/manualBookingExtras'
+import { generateUniqueShortOrderCode } from '../utils/orderCode'
 
 export type ManualBookingPaymentMethod = 'bank-transfer' | 'cash' | 'card' | 'other'
 export type { AccessType }
@@ -37,11 +38,15 @@ export type ManualBookingInput = {
     email: string
     phone: string
   }
+  pickupHouseNumber?: string
+  pickupHouseName?: string
   pickupAddress: string
   pickupCity: string
   pickupZipCode: string
   pickupDate: string
   pickupTime: string
+  deliveryHouseNumber?: string
+  deliveryHouseName?: string
   deliveryAddress: string
   deliveryCity: string
   deliveryZipCode: string
@@ -59,7 +64,10 @@ export type ManualBookingInput = {
   paymentReference?: string
   specialInstructions?: string
   sendConfirmationEmail?: boolean
+  sendPaymentLink?: boolean
+  hours?: number
   status?: 'pending' | 'survey'
+  surveyType?: 'home' | 'video'
   pickupAccess?: AccessType
   pickupStairsCount?: number
   deliveryAccess?: AccessType
@@ -87,13 +95,8 @@ export type ManualBookingResult = {
   emails: {
     confirmation: 'sent' | 'failed' | 'skipped'
     onboardingInvite: 'sent' | 'failed' | 'not_required'
+    paymentLink?: 'sent' | 'failed' | 'skipped'
   }
-}
-
-function generateOrderCode(): string {
-  const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-  const suffix = crypto.randomBytes(2).toString('hex').toUpperCase()
-  return `MAN-${ymd}-${suffix}`
 }
 
 function generatePaymentReference(): string {
@@ -111,14 +114,7 @@ function formatPickupDate(date: Date): string {
 }
 
 async function generateUniqueOrderCode(): Promise<string> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const orderCode = generateOrderCode()
-    const existing = await Booking.findOne({ orderCode }).select('_id').lean()
-    if (!existing) {
-      return orderCode
-    }
-  }
-  throw Object.assign(new Error('Failed to generate unique order code'), { statusCode: 500 })
+  return generateUniqueShortOrderCode()
 }
 
 function resolvePeopleAndVans(input: ManualBookingInput) {
@@ -266,13 +262,18 @@ function toManualBookingData(
   return {
     customer: new mongoose.Types.ObjectId(customerId),
     status: input.status === 'survey' ? 'survey' : 'pending',
+    surveyType: input.status === 'survey' ? input.surveyType : undefined,
     contactEmail: normalizedEmail,
     contactPhone: input.customer.phone || '',
+    pickupHouseNumber: input.pickupHouseNumber?.trim() || undefined,
+    pickupHouseName: input.pickupHouseName?.trim() || undefined,
     pickupAddress: input.pickupAddress,
     pickupCity: input.pickupCity,
     pickupZipCode: input.pickupZipCode,
     pickupDate: new Date(input.pickupDate),
     pickupTime: input.pickupTime,
+    deliveryHouseNumber: input.deliveryHouseNumber?.trim() || undefined,
+    deliveryHouseName: input.deliveryHouseName?.trim() || undefined,
     deliveryAddress: input.deliveryAddress,
     deliveryCity: input.deliveryCity,
     deliveryZipCode: input.deliveryZipCode,
@@ -298,6 +299,9 @@ function toManualBookingData(
     deliveryStairs: formatAccessLabel(input.deliveryAccess, input.deliveryStairsCount),
     men,
     manRequired: formatPeopleRequired(men),
+    hours: input.hours && input.hours >= 1 ? input.hours : undefined,
+    durationRequired:
+      input.hours && input.hours >= 1 ? String(input.hours) : undefined,
     items: [],
   }
 }
@@ -398,6 +402,7 @@ export async function createManualBooking(input: ManualBookingInput): Promise<Ma
     emails: {
       confirmation,
       onboardingInvite: customerStatus === 'created' ? inviteStatus : 'not_required',
+      paymentLink: 'skipped',
     },
   }
 }

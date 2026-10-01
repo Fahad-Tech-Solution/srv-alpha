@@ -13,6 +13,8 @@ export type VanCounts = {
 }
 
 export type BookingStopInput = {
+  houseNumber?: string
+  houseName?: string
   address: string
   city: string
   zipCode: string
@@ -109,6 +111,8 @@ export function formatServiceExtrasLabel(
 export function mapStopsForStorage(stops?: BookingStopInput[]) {
   if (!stops?.length) return []
   return stops.slice(0, 3).map((stop) => ({
+    houseNumber: stop.houseNumber?.trim() || undefined,
+    houseName: stop.houseName?.trim() || undefined,
     address: String(stop.address || '').trim(),
     city: String(stop.city || '').trim(),
     zipCode: String(stop.zipCode || '').trim(),

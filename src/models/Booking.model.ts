@@ -6,6 +6,9 @@ export interface IBooking extends Document {
   status: 'pending' | 'offered' | 'confirmed' | 'in-progress' | 'job-started' | 'completed' | 'cancelled' | 'disputed' | 'survey'
   
   // Pickup details
+  pickupHouseNumber?: string
+  pickupHouseName?: string
+  pickupStreet?: string
   pickupAddress: string
   pickupCity: string
   pickupState?: string
@@ -14,6 +17,9 @@ export interface IBooking extends Document {
   pickupTime: string
   
   // Delivery details
+  deliveryHouseNumber?: string
+  deliveryHouseName?: string
+  deliveryStreet?: string
   deliveryAddress: string
   deliveryCity: string
   deliveryState?: string
@@ -22,6 +28,8 @@ export interface IBooking extends Document {
   // Service details
   serviceType: 'local' | 'long-distance' | 'interstate'
   vehicleType: 'small' | 'medium' | 'large' | 'luton' | 'multi-van' | 'small-van' | 'medium-van' | 'large-van' | 'truck'
+  vehicleName?: string
+  vansLabel?: string
   vanCounts?: {
     small: number
     medium: number
@@ -31,6 +39,8 @@ export interface IBooking extends Document {
   drivers?: number
   helpers?: number
   stops?: {
+    houseNumber?: string
+    houseName?: string
     address: string
     city: string
     zipCode: string
@@ -38,6 +48,7 @@ export interface IBooking extends Document {
     stairsCount?: number
     accessLabel?: string
   }[]
+  surveyType?: 'home' | 'video'
   serviceExtras?: {
     dismantleItems: number
     assemblyItems: number
@@ -57,17 +68,25 @@ export interface IBooking extends Document {
   paymentReference?: string
   amountPaid?: number
   paymentDate?: Date
+  discountApplied?: boolean
+  discountCode?: string
+  discountPercent?: number
   idempotencyKey?: string
   sourceSystem?: string
   eventVersion?: string
+  paypalInvoiceId?: string
+  paypalInvoiceUrl?: string
+  invoiceSentAt?: Date
   
   // Order details
   orderCode?: string
+  externalOrderCode?: string
   miles?: number
   durationRequired?: string
   collectionStairs?: string
   deliveryStairs?: string
   helpersLabel?: string
+  helpersRateTier?: number
   vanSize?: string
   manRequired?: string
   hours?: number
@@ -78,12 +97,40 @@ export interface IBooking extends Document {
   specialInstructions?: string
   contactPhone: string
   contactEmail: string
+
+  // Admin call tracking
+  detailsConfirmedAt?: Date
+  detailsConfirmedBy?: mongoose.Types.ObjectId
+  feedbackCalledAt?: Date
+  feedbackCalledBy?: mongoose.Types.ObjectId
   
   // Driver job completion
   pickupPhotos?: string[]
   dropoffPhotos?: string[]
   completionPictures?: string[]
   driverNotes?: string
+  driverNoteEntries?: {
+    text: string
+    createdAt: Date
+    createdBy?: mongoose.Types.ObjectId
+  }[]
+
+  // Start / end job evidence
+  jobStartedAt?: Date
+  jobStartLat?: number
+  jobStartLng?: number
+  jobEndedAt?: Date
+  jobEndLat?: number
+  jobEndLng?: number
+
+  // Customer waiver
+  waiver?: {
+    signatureUrl: string
+    signedAt: Date
+    lat?: number
+    lng?: number
+    signedByName?: string
+  }
   
   // Additional work payment
   additionalWorkPayment?: number
@@ -142,6 +189,9 @@ const bookingSchema = new Schema<IBooking>(
       type: String,
       required: [true, 'Pickup address is required'],
     },
+    pickupHouseNumber: { type: String, trim: true },
+    pickupHouseName: { type: String, trim: true },
+    pickupStreet: { type: String, trim: true },
     pickupCity: {
       type: String,
       required: [true, 'Pickup city is required'],
@@ -165,6 +215,9 @@ const bookingSchema = new Schema<IBooking>(
       type: String,
       required: [true, 'Delivery address is required'],
     },
+    deliveryHouseNumber: { type: String, trim: true },
+    deliveryHouseName: { type: String, trim: true },
+    deliveryStreet: { type: String, trim: true },
     deliveryCity: {
       type: String,
       required: [true, 'Delivery city is required'],
@@ -203,14 +256,20 @@ const bookingSchema = new Schema<IBooking>(
     },
     stops: [
       {
-        address: { type: String, required: true, trim: true },
-        city: { type: String, required: true, trim: true },
-        zipCode: { type: String, required: true, trim: true },
+        houseNumber: { type: String, trim: true },
+        houseName: { type: String, trim: true },
+        address: { type: String, trim: true, default: '' },
+        city: { type: String, trim: true, default: '' },
+        zipCode: { type: String, trim: true, default: '' },
         access: { type: String, enum: ['lift', 'stairs', 'ground'] },
         stairsCount: { type: Number, min: 1 },
         accessLabel: { type: String, trim: true },
       },
     ],
+    surveyType: {
+      type: String,
+      enum: ['home', 'video'],
+    },
     serviceExtras: {
       dismantleItems: { type: Number, min: 0, default: 0 },
       assemblyItems: { type: Number, min: 0, default: 0 },
@@ -251,16 +310,42 @@ const bookingSchema = new Schema<IBooking>(
       min: 0,
     },
     paymentDate: Date,
+    discountApplied: {
+      type: Boolean,
+      default: false,
+    },
+    discountCode: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    discountPercent: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0,
+    },
     idempotencyKey: String,
     sourceSystem: String,
     eventVersion: String,
+    paypalInvoiceId: String,
+    paypalInvoiceUrl: String,
+    invoiceSentAt: Date,
     orderCode: String,
+    externalOrderCode: String,
     miles: Number,
     durationRequired: String,
     collectionStairs: String,
     deliveryStairs: String,
     helpersLabel: String,
+    helpersRateTier: {
+      type: Number,
+      min: 1,
+      max: 3,
+    },
     vanSize: String,
+    vehicleName: String,
+    vansLabel: String,
     manRequired: String,
     hours: {
       type: Number,
@@ -284,6 +369,16 @@ const bookingSchema = new Schema<IBooking>(
       type: String,
       required: [true, 'Contact email is required'],
     },
+    detailsConfirmedAt: Date,
+    detailsConfirmedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    feedbackCalledAt: Date,
+    feedbackCalledBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
     pickupPhotos: {
       type: [String],
       default: [],
@@ -302,6 +397,26 @@ const bookingSchema = new Schema<IBooking>(
     },
     completionPictures: [String],
     driverNotes: String,
+    driverNoteEntries: [
+      {
+        text: { type: String, required: true },
+        createdAt: { type: Date, default: Date.now },
+        createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      },
+    ],
+    jobStartedAt: Date,
+    jobStartLat: Number,
+    jobStartLng: Number,
+    jobEndedAt: Date,
+    jobEndLat: Number,
+    jobEndLng: Number,
+    waiver: {
+      signatureUrl: { type: String },
+      signedAt: { type: Date },
+      lat: { type: Number },
+      lng: { type: Number },
+      signedByName: { type: String },
+    },
     additionalWorkPayment: {
       type: Number,
       min: 0,
@@ -379,6 +494,8 @@ bookingSchema.index({ customer: 1, createdAt: -1 })
 bookingSchema.index({ driver: 1, status: 1 })
 bookingSchema.index({ status: 1 })
 bookingSchema.index({ orderCode: 1 }, { sparse: true, unique: true })
+bookingSchema.index({ pickupDate: 1, status: 1 })
+bookingSchema.index({ paypalInvoiceId: 1 }, { sparse: true })
 // Partial unique index: multiple bookings may omit paymentReference.
 // A sparse unique index still indexes null and only allows one null value.
 bookingSchema.index(

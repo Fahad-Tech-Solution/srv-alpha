@@ -166,6 +166,174 @@ describe('internal booking paid upsert', () => {
     expect(replay.body.error.code).toBe('REPLAYED_NONCE')
   })
 
+  it('persists structured quote-calculator fields and replays the same idempotency key', async () => {
+    const app = createTestApp()
+    const payload = buildPayload()
+    payload.idempotencyKey = 'booking-paid:bk_luton'
+    payload.orderCode = 'LV-AB12CD'
+    payload.paymentReference = 'pi_luton'
+    payload.customer.email = 'jane@example.com'
+    ;(payload as any).booking = {
+      ...payload.booking,
+      pickupStreet: '12 Example Road',
+      pickupCity: 'London',
+      pickupAddress: '12 Example Road, London, E1 6AN',
+      pickupZipCode: 'E1 6AN',
+      pickupDate: '2026-10-15',
+      deliveryStreet: '45 Destination Lane',
+      deliveryCity: 'London',
+      deliveryAddress: '45 Destination Lane, London, N1 9GU',
+      deliveryZipCode: 'N1 9GU',
+      vehicleType: 'truck',
+      vehicleName: 'Luton Van',
+      vanSize: 'luton',
+      vans: { small: 0, medium: 0, large: 0, luton: 1 },
+      vansLabel: '1× Luton',
+      hoursBooked: 3,
+      durationRequired: '3',
+      vanTime: '3',
+      drivers: 1,
+      additionalHelpers: 1,
+      totalCrew: 2,
+      helpersRateTier: 2,
+      helpersLabel: '1 driver + 1 additional person',
+      manRequired: '2',
+      specialInstructions: 'Handle with care | Fleet: 1× Luton',
+      discountApplied: true,
+      discountCode: 'SAVE10',
+      discountPercent: 10,
+      estimatedPrice: 170.1,
+      amountPaid: 170.1,
+      stops: [
+        {
+          postcode: 'EC1A 1BB',
+          street: '1 Stop Street',
+          city: 'London',
+          stairs: '0',
+        },
+      ],
+    }
+    const rawBody = JSON.stringify(payload)
+
+    const response = await request(app)
+      .post('/internal/integrations/bookings/upsert-paid')
+      .set(signedHeaders(rawBody, 'nonce-luton'))
+      .send(payload)
+
+    expect(response.status).toBe(200)
+    expect(response.body.idempotentReplay).toBe(false)
+
+    const booking = await Booking.findOne({ idempotencyKey: payload.idempotencyKey })
+    expect(booking).toBeTruthy()
+    expect(booking?.vehicleType).toBe('luton')
+    expect(booking?.vehicleName).toBe('Luton Van')
+    expect(booking?.vanSize).toBe('luton')
+    expect(booking?.vanCounts?.luton).toBe(1)
+    expect(booking?.vanCounts?.large).toBe(0)
+    expect(booking?.drivers).toBe(1)
+    expect(booking?.helpers).toBe(1)
+    expect(booking?.men).toBe(2)
+    expect(booking?.helpersRateTier).toBe(2)
+    expect(booking?.manRequired).toBe('2')
+    expect(booking?.hours).toBe(3)
+    expect(booking?.durationRequired).toBe('3')
+    expect(booking?.pickupStreet).toBe('12 Example Road')
+    expect(booking?.pickupAddress).toBe('12 Example Road')
+    expect(booking?.pickupCity).toBe('London')
+    expect(booking?.deliveryStreet).toBe('45 Destination Lane')
+    expect(booking?.deliveryCity).toBe('London')
+    expect(booking?.stops).toHaveLength(1)
+    expect(booking?.stops?.[0].address).toBe('1 Stop Street')
+    expect(booking?.stops?.[0].city).toBe('London')
+    expect(booking?.stops?.[0].zipCode).toBe('EC1A 1BB')
+    expect(booking?.discountApplied).toBe(true)
+    expect(booking?.discountCode).toBe('SAVE10')
+    expect(booking?.discountPercent).toBe(10)
+    expect(booking?.amountPaid).toBe(170.1)
+
+    const replay = await request(app)
+      .post('/internal/integrations/bookings/upsert-paid')
+      .set(signedHeaders(rawBody, 'nonce-luton-replay'))
+      .send(payload)
+
+    expect(replay.status).toBe(200)
+    expect(replay.body.idempotentReplay).toBe(true)
+    const bookings = await Booking.find({ idempotencyKey: payload.idempotencyKey })
+    expect(bookings).toHaveLength(1)
+  })
+
+  it('keeps luton when qty says luton even if other vehicle fields say large', async () => {
+    const app = createTestApp()
+    const payload = buildPayload()
+    payload.idempotencyKey = 'booking-paid:bk_luton_override'
+    payload.orderCode = 'LV-LUTON2'
+    payload.paymentReference = 'pi_luton_override'
+    payload.customer.email = 'luton@example.com'
+    ;(payload as any).booking = {
+      ...payload.booking,
+      vehicleType: 'large-van',
+      vehicleName: 'Large Van',
+      vanSize: 'large',
+      vans: { small: 0, medium: 0, large: 0, luton: 1 },
+      drivers: 1,
+      additionalHelpers: 0,
+      totalCrew: 1,
+      helpersRateTier: 2,
+      manRequired: '2',
+    }
+    const rawBody = JSON.stringify(payload)
+
+    const response = await request(app)
+      .post('/internal/integrations/bookings/upsert-paid')
+      .set(signedHeaders(rawBody, 'nonce-luton-override'))
+      .send(payload)
+
+    expect(response.status).toBe(200)
+    const booking = await Booking.findOne({ paymentReference: payload.paymentReference })
+    expect(booking?.vehicleType).toBe('luton')
+    expect(booking?.vehicleName).toBe('Luton Van')
+    expect(booking?.vanCounts?.luton).toBe(1)
+    expect(booking?.vanCounts?.large).toBe(0)
+    expect(booking?.helpers).toBe(0)
+    expect(booking?.drivers).toBe(1)
+    expect(booking?.men).toBe(1)
+    expect(booking?.manRequired).toBe('2')
+    expect(booking?.discountApplied).toBe(false)
+    expect(booking?.discountCode).toBe('')
+    expect(booking?.discountPercent).toBe(0)
+  })
+
+  it('persists partial stop payloads that only include a postcode', async () => {
+    const app = createTestApp()
+    const payload = buildPayload()
+    payload.idempotencyKey = 'booking-paid:bk_stop_partial'
+    payload.orderCode = 'LV-STOP1'
+    payload.paymentReference = 'pi_stop_partial'
+    payload.customer.email = 'stops@example.com'
+    ;(payload as any).booking = {
+      ...payload.booking,
+      stops: [
+        { postcode: 'SW1A 1AA', street: '', city: '', stairs: '0' },
+        { postcode: 'E1 6AN', street: '22 Mile End', city: 'London', stairs: '2' },
+      ],
+    }
+    const rawBody = JSON.stringify(payload)
+
+    const response = await request(app)
+      .post('/internal/integrations/bookings/upsert-paid')
+      .set(signedHeaders(rawBody, 'nonce-stop-partial'))
+      .send(payload)
+
+    expect(response.status).toBe(200)
+    const booking = await Booking.findOne({ paymentReference: payload.paymentReference })
+    expect(booking?.stops).toHaveLength(2)
+    expect(booking?.stops?.[0].zipCode).toBe('SW1A 1AA')
+    expect(booking?.stops?.[0].address).toBe('SW1A 1AA')
+    expect(booking?.stops?.[1].address).toBe('22 Mile End')
+    expect(booking?.stops?.[1].city).toBe('London')
+    expect(booking?.stops?.[1].zipCode).toBe('E1 6AN')
+  })
+
   it('rejects malformed payload', async () => {
     const app = createTestApp()
     const payload = { foo: 'bar' }

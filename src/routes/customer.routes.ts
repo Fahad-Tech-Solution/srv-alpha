@@ -3,6 +3,7 @@ import { body } from 'express-validator'
 import {
   sendCustomerMessage,
   amendBooking,
+  signWaiver,
 } from '../controllers/customer.controller'
 import { authenticate } from '../middlewares/auth.middleware'
 
@@ -25,5 +26,12 @@ router.put('/bookings/:id/amend', [
   body('pickupDate').optional().isISO8601().withMessage('Valid pickup date is required'),
   body('pickupTime').optional().trim().notEmpty().withMessage('Pickup time is required'),
 ], amendBooking)
+
+router.post('/bookings/:id/waiver', [
+  body('signatureUrl').isString().trim().notEmpty(),
+  body('lat').optional().isFloat(),
+  body('lng').optional().isFloat(),
+  body('signedByName').optional().isString().trim(),
+], signWaiver)
 
 export default router

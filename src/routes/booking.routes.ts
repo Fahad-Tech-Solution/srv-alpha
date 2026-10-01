@@ -66,6 +66,21 @@ const createPublicBookingValidation = [
 
 // PUBLIC ROUTE - No authentication required
 router.post('/public', createPublicBookingValidation, createPublicBooking)
+router.post(
+  '/:id/waiver-public',
+  [
+    body('orderCode').isString().trim().notEmpty(),
+    body('signatureUrl').isString().trim().notEmpty(),
+    body('lat').optional().isFloat(),
+    body('lng').optional().isFloat(),
+    body('signedByName').optional().isString().trim(),
+  ],
+  // lazy import to avoid circular deps in route file
+  async (req, res, next) => {
+    const { signWaiverPublic } = await import('../controllers/customer.controller')
+    return signWaiverPublic(req, res, next)
+  }
+)
 
 // All routes below require authentication
 router.use(authenticate)

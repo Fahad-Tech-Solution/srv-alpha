@@ -211,6 +211,10 @@ export class NotificationService {
     }
   }
 
+  /**
+   * SMS is deferred for a full provider integration (e.g. Twilio).
+   * Admin UI currently uses device `sms:` links instead.
+   */
   async sendSMS(to: string, message: string) {
     console.log(`SMS would be sent to ${to}: ${message}`)
   }

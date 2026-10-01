@@ -61,15 +61,15 @@ const SERVICE_TYPE_LABELS: Record<string, string> = {
 }
 
 const VEHICLE_TYPE_LABELS: Record<string, string> = {
-  small: 'Small',
-  medium: 'Medium',
-  large: 'Large',
-  luton: 'Luton',
+  small: 'Small Van',
+  medium: 'Medium Van',
+  large: 'Large Van',
+  luton: 'Luton Van',
   'multi-van': 'Multi Van',
-  'small-van': 'Small van',
-  'medium-van': 'Medium van',
-  'large-van': 'Large van',
-  truck: 'Truck',
+  'small-van': 'Small Van',
+  'medium-van': 'Medium Van',
+  'large-van': 'Large Van',
+  truck: 'Luton Van',
 }
 
 function formatPrice(amount: number): string {

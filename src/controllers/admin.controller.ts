@@ -23,6 +23,12 @@ import {
 } from '../services/driverApplication.service'
 import { createManualBooking, sendBookingConfirmationById } from '../services/manualBooking.service'
 import {
+  createAndSendInvoice,
+  getInvoiceAmount,
+} from '../services/payment.service'
+import { buildInvoiceLinkEmail } from '../emails/invoiceLink.template'
+import { notificationService } from '../services/notification.service'
+import {
   deriveVehicleTypeFromVanCounts,
   mapStopsForStorage,
   normalizeServiceExtras,
@@ -496,7 +502,15 @@ export const getAllBookings = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { status, page = 1, limit = 10, search } = req.query
+    const {
+      status,
+      page = 1,
+      limit = 10,
+      search,
+      pickupDate,
+      pickupDateFrom,
+      pickupDateTo,
+    } = req.query
     const skip = (Number(page) - 1) * Number(limit)
 
     const query: any = {}
@@ -519,6 +533,7 @@ export const getAllBookings = async (
 
       query.$or = [
         { orderCode: { $regex: searchTerm, $options: 'i' } },
+        { externalOrderCode: { $regex: searchTerm, $options: 'i' } },
         { contactEmail: { $regex: searchTerm, $options: 'i' } },
         { contactPhone: { $regex: searchTerm, $options: 'i' } },
         { pickupAddress: { $regex: searchTerm, $options: 'i' } },
@@ -527,17 +542,104 @@ export const getAllBookings = async (
       ]
     }
 
-    const bookings = await Booking.find(query)
-      .populate('customer', 'name email phone')
-      .populate('driver', 'name email phone vehicleRegistration')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(Number(limit))
+    const { ukDayBounds } = await import('../utils/addressFormat')
+    if (pickupDate) {
+      const { from, to } = ukDayBounds(String(pickupDate))
+      query.pickupDate = { $gte: from, $lt: to }
+    } else if (pickupDateFrom || pickupDateTo) {
+      query.pickupDate = {}
+      if (pickupDateFrom) {
+        query.pickupDate.$gte = ukDayBounds(String(pickupDateFrom)).from
+      }
+      if (pickupDateTo) {
+        query.pickupDate.$lt = ukDayBounds(String(pickupDateTo)).to
+      }
+    }
+
+    const bookings = await Booking.aggregate([
+      { $match: query },
+      {
+        $addFields: {
+          _statusRank: {
+            $switch: {
+              branches: [
+                { case: { $in: ['$status', ['pending', 'offered', 'survey']] }, then: 0 },
+                {
+                  case: { $in: ['$status', ['confirmed', 'in-progress', 'job-started']] },
+                  then: 1,
+                },
+                {
+                  case: { $in: ['$status', ['completed', 'cancelled', 'disputed']] },
+                  then: 2,
+                },
+              ],
+              default: 1,
+            },
+          },
+        },
+      },
+      { $sort: { _statusRank: 1, pickupDate: 1, createdAt: -1 } },
+      { $skip: skip },
+      { $limit: Number(limit) },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'customer',
+          foreignField: '_id',
+          as: 'customer',
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'driver',
+          foreignField: '_id',
+          as: 'driver',
+        },
+      },
+      {
+        $addFields: {
+          customer: { $arrayElemAt: ['$customer', 0] },
+          driver: { $arrayElemAt: ['$driver', 0] },
+        },
+      },
+      {
+        $project: {
+          _statusRank: 0,
+          'customer.password': 0,
+          'customer.firstAccessToken': 0,
+          'driver.password': 0,
+          'driver.firstAccessToken': 0,
+        },
+      },
+    ])
+
+    // Shape populated refs like .populate('…', 'name email phone …')
+    const shaped = bookings.map((b: any) => ({
+      ...b,
+      customer: b.customer
+        ? {
+            _id: b.customer._id,
+            name: b.customer.name,
+            email: b.customer.email,
+            phone: b.customer.phone,
+          }
+        : b.customer,
+      driver: b.driver
+        ? {
+            _id: b.driver._id,
+            name: b.driver.name,
+            email: b.driver.email,
+            phone: b.driver.phone,
+            vehicleRegistration: b.driver.vehicleRegistration,
+          }
+        : b.driver,
+    }))
 
     const total = await Booking.countDocuments(query)
 
     res.json({
-      bookings,
+      bookings: shaped,
       pagination: {
         page: Number(page),
         limit: Number(limit),
@@ -558,12 +660,100 @@ export const createBookingAdmin = async (
 ): Promise<void> => {
   try {
     const result = await createManualBooking(req.body)
+    let paymentLink: 'sent' | 'failed' | 'skipped' = 'skipped'
+
+    if (req.body.sendPaymentLink === true && result.booking.paymentStatus === 'pending') {
+      try {
+        const booking = await Booking.findById(result.booking._id).populate(
+          'customer',
+          'name email phone'
+        )
+        if (booking && booking.contactEmail) {
+          const amount = getInvoiceAmount(booking)
+          if (amount > 0) {
+            const customerDoc =
+              booking.customer && typeof booking.customer === 'object'
+                ? (booking.customer as { name?: string; email?: string })
+                : null
+            const customerName =
+              customerDoc?.name || booking.contactEmail.split('@')[0] || 'Customer'
+            const { invoiceId, href } = await createAndSendInvoice(booking as any, customerName)
+            booking.paypalInvoiceId = invoiceId
+            booking.paypalInvoiceUrl = href
+            booking.invoiceSentAt = new Date()
+            booking.paymentMethod = 'paypal'
+            booking.paymentReference = invoiceId
+            await booking.save()
+
+            const orderCode = booking.orderCode || booking._id.toString()
+            const emailContent = buildInvoiceLinkEmail({
+              customerName,
+              orderCode,
+              amount,
+              invoiceUrl: href,
+              pickupCity: booking.pickupCity,
+              deliveryCity: booking.deliveryCity,
+              pickupDate: booking.pickupDate
+                ? new Date(booking.pickupDate).toLocaleDateString('en-GB')
+                : undefined,
+              supportEmail: process.env.SMTP_FROM_EMAIL || 'info@local-van.com',
+              websiteUrl: 'https://local-van.com',
+            })
+            await notificationService.sendEmail(
+              booking.contactEmail,
+              emailContent.subject,
+              emailContent.text,
+              emailContent.html
+            )
+            paymentLink = 'sent'
+            result.booking = booking
+          }
+        }
+      } catch (err) {
+        console.error('Payment link send failed after manual create:', err)
+        paymentLink = 'failed'
+      }
+    }
+
+    if (result.booking.status === 'survey' && req.body.sendConfirmationEmail !== false) {
+      try {
+        const { buildSurveyConfirmationEmail } = await import(
+          '../emails/surveyConfirmation.template'
+        )
+        const { formatFullAddress } = await import('../utils/addressFormat')
+        const b = result.booking
+        const emailContent = buildSurveyConfirmationEmail({
+          customerName: req.body.customer?.name || b.contactEmail,
+          orderCode: b.orderCode || b._id.toString(),
+          surveyType: b.surveyType === 'video' ? 'video' : 'home',
+          pickupDate: b.pickupDate
+            ? new Date(b.pickupDate).toLocaleDateString('en-GB')
+            : '—',
+          pickupTime: b.pickupTime,
+          address: formatFullAddress({
+            houseName: b.pickupHouseName,
+            houseNumber: b.pickupHouseNumber,
+            address: b.pickupAddress,
+            city: b.pickupCity,
+            zipCode: b.pickupZipCode,
+          }),
+        })
+        await notificationService.sendEmail(
+          b.contactEmail,
+          emailContent.subject,
+          emailContent.text,
+          emailContent.html
+        )
+      } catch (err) {
+        console.error('Survey confirmation email failed:', err)
+      }
+    }
 
     res.status(201).json({
       message: 'Booking created successfully',
       booking: result.booking,
       customerStatus: result.customerStatus,
-      emails: result.emails,
+      emails: { ...result.emails, paymentLink },
     })
   } catch (error: any) {
     if (error.statusCode) {
@@ -654,6 +844,47 @@ export const updateBookingAdmin = async (
       }
       safeUpdates.serviceExtras = extras
     }
+
+    if (safeUpdates.hours !== undefined && safeUpdates.hours != null) {
+      const hours = Number(safeUpdates.hours)
+      if (!Number.isFinite(hours) || hours < 1) {
+        res.status(400).json({ message: 'Hours must be at least 1' })
+        return
+      }
+      safeUpdates.hours = hours
+      if (safeUpdates.durationRequired === undefined) {
+        safeUpdates.durationRequired = String(hours)
+      }
+    }
+
+    // Call-tracking toggles from admin UI
+    if (safeUpdates.detailsConfirmed === true) {
+      booking.detailsConfirmedAt = new Date()
+      booking.detailsConfirmedBy = new mongoose.Types.ObjectId(req.user!.userId)
+      delete safeUpdates.detailsConfirmed
+    } else if (safeUpdates.detailsConfirmed === false) {
+      booking.set('detailsConfirmedAt', undefined)
+      booking.set('detailsConfirmedBy', undefined)
+      delete safeUpdates.detailsConfirmed
+      delete safeUpdates.detailsConfirmedAt
+      delete safeUpdates.detailsConfirmedBy
+    }
+
+    if (safeUpdates.feedbackCalled === true) {
+      booking.feedbackCalledAt = new Date()
+      booking.feedbackCalledBy = new mongoose.Types.ObjectId(req.user!.userId)
+      delete safeUpdates.feedbackCalled
+    } else if (safeUpdates.feedbackCalled === false) {
+      booking.set('feedbackCalledAt', undefined)
+      booking.set('feedbackCalledBy', undefined)
+      delete safeUpdates.feedbackCalled
+      delete safeUpdates.feedbackCalledAt
+      delete safeUpdates.feedbackCalledBy
+    }
+
+    // Never allow clients to rewrite booked-on
+    delete safeUpdates.createdAt
+    delete safeUpdates.updatedAt
 
     Object.assign(booking, safeUpdates)
 
@@ -986,6 +1217,11 @@ export const sendEmailReminder = async (
     const { id } = req.params
     const { type } = req.body // 'customer' or 'driver'
 
+    if (type !== 'customer' && type !== 'driver') {
+      res.status(400).json({ message: 'type must be customer or driver' })
+      return
+    }
+
     const booking = await Booking.findById(id)
       .populate('customer', 'name email phone')
       .populate('driver', 'name email phone')
@@ -995,13 +1231,183 @@ export const sendEmailReminder = async (
       return
     }
 
-    // TODO: Implement email sending
-    // For now, just return success
-    res.json({
-      message: `Email reminder sent to ${type}`,
-      booking,
+    const {
+      buildJobReminderEmail,
+      bookingAddressesForEmail,
+    } = await import('../emails/jobReminder.template')
+    const addresses = bookingAddressesForEmail(booking)
+    const pickupDate = booking.pickupDate
+      ? new Date(booking.pickupDate).toLocaleDateString('en-GB')
+      : '—'
+    const orderCode = booking.orderCode || booking._id.toString().slice(-6).toUpperCase()
+    const supportEmail = process.env.SMTP_FROM_EMAIL || 'info@local-van.com'
+
+    if (type === 'customer') {
+      const customerDoc =
+        booking.customer && typeof booking.customer === 'object'
+          ? (booking.customer as { name?: string; email?: string })
+          : null
+      const to = booking.contactEmail || customerDoc?.email
+      if (!to) {
+        res.status(400).json({ message: 'Booking has no customer email' })
+        return
+      }
+      const name = customerDoc?.name || to.split('@')[0] || 'Customer'
+      const emailContent = buildJobReminderEmail({
+        recipientName: name,
+        orderCode,
+        pickupDate,
+        pickupTime: booking.pickupTime,
+        pickupAddress: addresses.pickup,
+        deliveryAddress: addresses.delivery,
+        contactPhone: booking.contactPhone,
+        role: 'customer',
+        supportEmail,
+      })
+      await notificationService.sendEmail(
+        to,
+        emailContent.subject,
+        emailContent.text,
+        emailContent.html
+      )
+      res.json({ message: 'Email reminder sent to customer', booking })
+      return
+    }
+
+    const driverDoc =
+      booking.driver && typeof booking.driver === 'object'
+        ? (booking.driver as { name?: string; email?: string })
+        : null
+    if (!driverDoc?.email) {
+      res.status(400).json({ message: 'No driver assigned with an email address' })
+      return
+    }
+    const emailContent = buildJobReminderEmail({
+      recipientName: driverDoc.name || 'Driver',
+      orderCode,
+      pickupDate,
+      pickupTime: booking.pickupTime,
+      pickupAddress: addresses.pickup,
+      deliveryAddress: addresses.delivery,
+      contactPhone: booking.contactPhone,
+      contactEmail: booking.contactEmail,
+      role: 'driver',
+      supportEmail,
     })
+    await notificationService.sendEmail(
+      driverDoc.email,
+      emailContent.subject,
+      emailContent.text,
+      emailContent.html
+    )
+    res.json({ message: 'Email reminder sent to driver', booking })
   } catch (error) {
+    next(error)
+  }
+}
+
+// Create PayPal invoice and email pay link to customer
+export const sendInvoiceLink = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+
+    const booking = await Booking.findById(id).populate('customer', 'name email phone')
+    if (!booking) {
+      res.status(404).json({ message: 'Booking not found' })
+      return
+    }
+
+    if (booking.paymentStatus === 'paid') {
+      res.status(400).json({ message: 'This booking is already paid' })
+      return
+    }
+
+    if (booking.paymentStatus === 'refunded') {
+      res.status(400).json({ message: 'Cannot invoice a refunded booking' })
+      return
+    }
+
+    const amount = getInvoiceAmount(booking)
+    if (!(amount > 0)) {
+      res.status(400).json({ message: 'Invoice amount must be greater than zero' })
+      return
+    }
+
+    if (!booking.contactEmail) {
+      res.status(400).json({ message: 'Booking has no contact email' })
+      return
+    }
+
+    const customerDoc =
+      booking.customer && typeof booking.customer === 'object'
+        ? (booking.customer as { name?: string; email?: string })
+        : null
+    const customerName =
+      customerDoc?.name || booking.contactEmail.split('@')[0] || 'Customer'
+
+    const { invoiceId, href } = await createAndSendInvoice(
+      booking as any,
+      customerName
+    )
+
+    booking.paypalInvoiceId = invoiceId
+    booking.paypalInvoiceUrl = href
+    booking.invoiceSentAt = new Date()
+    booking.paymentMethod = 'paypal'
+    booking.paymentReference = invoiceId
+    booking.paymentStatus = 'pending'
+    await booking.save()
+
+    const orderCode = booking.orderCode || booking._id.toString()
+    const emailContent = buildInvoiceLinkEmail({
+      customerName,
+      orderCode,
+      amount,
+      invoiceUrl: href,
+      pickupCity: booking.pickupCity,
+      deliveryCity: booking.deliveryCity,
+      pickupDate: booking.pickupDate
+        ? new Date(booking.pickupDate).toLocaleDateString('en-GB')
+        : undefined,
+      supportEmail: process.env.SMTP_FROM_EMAIL || 'info@local-van.com',
+      websiteUrl: 'https://local-van.com',
+    })
+
+    try {
+      await notificationService.sendEmail(
+        booking.contactEmail,
+        emailContent.subject,
+        emailContent.text,
+        emailContent.html
+      )
+    } catch (emailError) {
+      console.error('Invoice email failed after PayPal invoice created:', emailError)
+      res.status(502).json({
+        message:
+          'PayPal invoice was created but the email failed to send. You can copy the invoice link and send it manually.',
+        booking,
+        invoiceUrl: href,
+      })
+      return
+    }
+
+    await booking.populate('customer', 'name email phone')
+    await booking.populate('driver', 'name email phone')
+
+    res.json({
+      message: 'Invoice sent to customer',
+      booking,
+      invoiceUrl: href,
+    })
+  } catch (error: any) {
+    if (error?.statusCode) {
+      res.status(error.statusCode).json({ message: error.message })
+      return
+    }
     next(error)
   }
 }
@@ -1342,6 +1748,97 @@ export const markAllAdminNotificationsRead = async (
   try {
     await AdminNotification.updateMany({ isRead: false }, { isRead: true })
     res.json({ message: 'All notifications marked as read' })
+  } catch (error) {
+    next(error)
+  }
+}
+
+/** Calendar range of jobs (admin). */
+export const getBookingsCalendar = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const from = req.query.from ? new Date(String(req.query.from)) : null
+    const to = req.query.to ? new Date(String(req.query.to)) : null
+    if (!from || !to || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      res.status(400).json({ message: 'from and to query params (ISO dates) are required' })
+      return
+    }
+
+    const bookings = await Booking.find({
+      pickupDate: { $gte: from, $lte: to },
+    })
+      .select(
+        'orderCode status pickupDate pickupTime pickupCity deliveryCity pickupAddress deliveryAddress surveyType contactEmail contactPhone estimatedPrice finalPrice'
+      )
+      .populate('customer', 'name')
+      .populate('driver', 'name')
+      .sort({ pickupDate: 1 })
+      .lean()
+
+    res.json({ bookings })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const listWithdrawals = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { Withdrawal } = await import('../models/Withdrawal.model')
+    const status = req.query.status ? String(req.query.status) : undefined
+    const query: Record<string, unknown> = {}
+    if (status) query.status = status
+
+    const withdrawals = await Withdrawal.find(query)
+      .populate('driver', 'name email phone')
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean()
+
+    res.json({ withdrawals })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const processWithdrawal = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { Withdrawal } = await import('../models/Withdrawal.model')
+    const { id } = req.params
+    const { status, adminNote } = req.body as {
+      status: 'approved' | 'rejected' | 'paid'
+      adminNote?: string
+    }
+
+    if (!['approved', 'rejected', 'paid'].includes(status)) {
+      res.status(400).json({ message: 'status must be approved, rejected, or paid' })
+      return
+    }
+
+    const withdrawal = await Withdrawal.findById(id)
+    if (!withdrawal) {
+      res.status(404).json({ message: 'Withdrawal not found' })
+      return
+    }
+
+    withdrawal.status = status
+    if (adminNote !== undefined) withdrawal.adminNote = adminNote
+    withdrawal.processedBy = new mongoose.Types.ObjectId(req.user!.userId)
+    withdrawal.processedAt = new Date()
+    await withdrawal.save()
+    await withdrawal.populate('driver', 'name email phone')
+
+    res.json({ message: 'Withdrawal updated', withdrawal })
   } catch (error) {
     next(error)
   }

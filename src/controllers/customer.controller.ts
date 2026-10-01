@@ -146,3 +146,96 @@ export const amendBooking = async (
     next(error)
   }
 }
+
+/** Customer signs waiver (signature image URL + optional GPS). */
+export const signWaiver = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ message: 'Unauthorized' })
+      return
+    }
+
+    const { id } = req.params
+    const { signatureUrl, lat, lng, signedByName } = req.body
+
+    if (!signatureUrl || typeof signatureUrl !== 'string') {
+      res.status(400).json({ message: 'signatureUrl is required' })
+      return
+    }
+
+    const booking = await Booking.findOne({
+      _id: id,
+      customer: req.user.userId,
+    })
+    if (!booking) {
+      res.status(404).json({ message: 'Booking not found' })
+      return
+    }
+
+    booking.waiver = {
+      signatureUrl,
+      signedAt: new Date(),
+      lat: typeof lat === 'number' ? lat : undefined,
+      lng: typeof lng === 'number' ? lng : undefined,
+      signedByName: signedByName || undefined,
+    }
+    await booking.save()
+
+    res.json({ message: 'Waiver signed', booking })
+  } catch (error) {
+    next(error)
+  }
+}
+
+/**
+ * Public/on-site waiver signing via order code verification
+ * (for mobile link without forcing login).
+ */
+export const signWaiverPublic = async (
+  req: any,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const { orderCode, signatureUrl, lat, lng, signedByName } = req.body
+
+    if (!signatureUrl || !orderCode) {
+      res.status(400).json({ message: 'orderCode and signatureUrl are required' })
+      return
+    }
+
+    const booking = await Booking.findById(id)
+    if (!booking) {
+      res.status(404).json({ message: 'Booking not found' })
+      return
+    }
+    if (
+      String(booking.orderCode || '').toUpperCase() !== String(orderCode).trim().toUpperCase()
+    ) {
+      res.status(403).json({ message: 'Invalid order code' })
+      return
+    }
+
+    booking.waiver = {
+      signatureUrl,
+      signedAt: new Date(),
+      lat: typeof lat === 'number' ? lat : undefined,
+      lng: typeof lng === 'number' ? lng : undefined,
+      signedByName: signedByName || undefined,
+    }
+    await booking.save()
+
+    res.json({
+      message: 'Waiver signed',
+      orderCode: booking.orderCode,
+      signedAt: booking.waiver.signedAt,
+    })
+  } catch (error) {
+    next(error)
+  }
+}

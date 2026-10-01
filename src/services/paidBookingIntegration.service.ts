@@ -4,7 +4,11 @@ import { Booking, IBooking } from '../models/Booking.model'
 import { User, IUser } from '../models/User.model'
 import { buildOnboardingInviteEmail } from '../emails/onboardingInvite.template'
 import { notificationService } from './notification.service'
-import { normalizeStairsForStorage } from '../utils/stairsAccess'
+import { resolveImportOrderCode } from '../utils/orderCode'
+import {
+  mapQuotePaidBooking,
+  type QuotePaidBookingInput,
+} from '../utils/quoteBookingMapping'
 
 type IntegrationPayload = {
   sourceSystem: string
@@ -20,28 +24,7 @@ type IntegrationPayload = {
     name: string
     phone: string
   }
-  booking: {
-    pickupAddress: string
-    pickupCity: string
-    pickupZipCode: string
-    pickupDate: string
-    pickupTime: string
-    deliveryAddress: string
-    deliveryCity: string
-    deliveryZipCode: string
-    serviceType: 'local' | 'long-distance' | 'interstate'
-    vehicleType: 'small-van' | 'medium-van' | 'large-van' | 'truck'
-    estimatedPrice: number
-    amountPaid: number
-    miles?: number
-    durationRequired?: string
-    collectionStairs?: string
-    deliveryStairs?: string
-    helpersLabel?: string
-    manRequired?: string
-    specialInstructions?: string
-    items?: { name: string; quantity: number; description?: string }[]
-  }
+  booking: QuotePaidBookingInput
 }
 
 type UpsertResult = {
@@ -234,40 +217,31 @@ export async function resendOnboardingInviteByEmail(
   return { inviteStatus, customerId: user._id.toString() }
 }
 
-function toBookingCreateData(payload: IntegrationPayload, customerId: string): Partial<IBooking> {
+function toBookingCreateData(
+  payload: IntegrationPayload,
+  customerId: string,
+  orderCode: string,
+  externalOrderCode?: string
+): Partial<IBooking> {
+  const mapped = mapQuotePaidBooking(payload.booking)
+
   return {
+    ...mapped,
     customer: new mongoose.Types.ObjectId(customerId),
     contactEmail: normalizeEmail(payload.customer.email),
     contactPhone: payload.customer.phone || '',
-    pickupAddress: payload.booking.pickupAddress,
-    pickupCity: payload.booking.pickupCity,
-    pickupZipCode: payload.booking.pickupZipCode,
-    pickupDate: new Date(payload.booking.pickupDate),
-    pickupTime: payload.booking.pickupTime,
-    deliveryAddress: payload.booking.deliveryAddress,
-    deliveryCity: payload.booking.deliveryCity,
-    deliveryZipCode: payload.booking.deliveryZipCode,
-    serviceType: payload.booking.serviceType,
-    vehicleType: payload.booking.vehicleType,
     estimatedPrice: payload.booking.estimatedPrice,
     finalPrice: payload.booking.amountPaid || payload.booking.estimatedPrice,
     amountPaid: payload.booking.amountPaid,
     paymentStatus: payload.booking.amountPaid > 0 ? 'paid' : 'pending',
     paymentMethod: payload.paymentProvider,
     paymentDate: new Date(payload.paidAt),
-    orderCode: payload.orderCode,
+    orderCode,
+    externalOrderCode,
     paymentReference: payload.paymentReference,
     idempotencyKey: payload.idempotencyKey,
     sourceSystem: payload.sourceSystem,
     eventVersion: payload.eventVersion,
-    miles: payload.booking.miles,
-    durationRequired: payload.booking.durationRequired,
-    collectionStairs: normalizeStairsForStorage(payload.booking.collectionStairs),
-    deliveryStairs: normalizeStairsForStorage(payload.booking.deliveryStairs),
-    helpersLabel: payload.booking.helpersLabel,
-    manRequired: payload.booking.manRequired,
-    specialInstructions: payload.booking.specialInstructions,
-    items: payload.booking.items || [],
   }
 }
 
@@ -309,10 +283,19 @@ export async function upsertPaidBooking(payload: IntegrationPayload): Promise<Up
     { sendInviteOnCreate: true, auditContext }
   )
 
-  const booking = await Booking.create(toBookingCreateData(payload, customer._id.toString()))
+  const resolved = await resolveImportOrderCode(payload.orderCode)
+  const booking = await Booking.create(
+    toBookingCreateData(
+      payload,
+      customer._id.toString(),
+      resolved.orderCode,
+      resolved.externalOrderCode
+    )
+  )
 
   logAudit('booking_created', {
-    orderCode: payload.orderCode,
+    orderCode: resolved.orderCode,
+    externalOrderCode: resolved.externalOrderCode ?? null,
     paymentReference: payload.paymentReference,
     idempotencyKey: payload.idempotencyKey,
     customerEmail: normalizedEmail,

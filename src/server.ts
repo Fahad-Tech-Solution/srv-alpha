@@ -14,6 +14,7 @@ import driverRoutes from './routes/driver.routes'
 import customerRoutes from './routes/customer.routes'
 import uploadRoutes from './routes/upload.routes'
 import internalIntegrationRoutes from './routes/internalIntegration.routes'
+import paymentRoutes from './routes/payment.routes'
 import { errorHandler } from './middlewares/errorHandler'
 
 dotenv.config()
@@ -60,6 +61,7 @@ app.use('/api/admin', adminRoutes)
 app.use('/api/driver', driverRoutes)
 app.use('/api/customer', customerRoutes)
 app.use('/api/upload', uploadRoutes)
+app.use('/api/payments', paymentRoutes)
 app.use('/internal/integrations', internalIntegrationRoutes)
 
 // Error handling middleware
