@@ -1,0 +1,13 @@
+Copyright (c) Fahad Tech Solution. All Rights Reserved.
+
+This software and its associated documentation files (the "Software") are
+proprietary and confidential.
+
+No license is granted to copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, or to permit others to do so, except with
+prior written permission from the copyright holder.
+
+Default copyright law applies: others have no right to copy, distribute, or
+modify this work without permission.
+
+Contact: work@fahadtechsolution.com
